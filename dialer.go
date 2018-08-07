@@ -9,10 +9,10 @@ import (
 )
 
 // a QuicDialFN is a function that may be used to establish a new QUIC Session
-type QuicDialFN func(addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
+type QuicDialFN func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
 
 var (
-	defaultQuicDial QuicDialFN = quic.DialAddr
+	defaultQuicDial QuicDialFN = quic.DialAddrContext
 )
 
 // NewClient returns a client that creates multiplexed
@@ -55,7 +55,7 @@ type Client struct {
 // value given in the client Config.
 func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 	// There is no direct support for Contexts
-	// during handshaking / stream creation, so this is done
+	// during stream creation, so this is done
 	// on a goroutine.
 
 	var conn *Conn
@@ -66,7 +66,7 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 	go func() {
 		defer close(done)
 
-		if err = c.WarmUp(); err != nil {
+		if err = c.WarmUp(ctx); err != nil {
 			return
 		}
 
@@ -115,9 +115,9 @@ func (c *Client) Dial() (*Conn, error) {
 // once regardless of the number of calls, and
 // is guaranteed to be completed when the call
 // returns to any caller.
-func (c *Client) WarmUp() error {
+func (c *Client) WarmUp(ctx context.Context) error {
 	c.dialOnce.Do(func() {
-		c.session, c.handshakeErr = c.dial(c.address, c.tlsConf, c.config)
+		c.session, c.handshakeErr = c.dial(ctx, c.address, c.tlsConf, c.config)
 	})
 	return c.handshakeErr
 }
@@ -126,7 +126,7 @@ func (c *Client) WarmUp() error {
 // (and all multiplexed connections)
 func (c *Client) Close() error {
 	if c.session != nil {
-		return c.session.Close(nil)
+		return c.session.Close()
 	}
 	return nil
 }
