@@ -126,7 +126,7 @@ func (c *Client) WarmUp(ctx context.Context) error {
 // (and all multiplexed connections)
 func (c *Client) Close() error {
 	if c.session != nil {
-		return c.session.Close()
+		return c.session.Close(nil)
 	}
 	return nil
 }

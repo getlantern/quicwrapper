@@ -113,7 +113,7 @@ func (l *listener) listen() {
 			return
 		}
 		if l.closed {
-			session.Close()
+			session.Close(nil)
 			return
 		} else {
 			atomic.AddInt64(&l.numConnections, 1)
@@ -126,7 +126,7 @@ func (l *listener) listen() {
 func (l *listener) handleSession(session quic.Session, group *sync.WaitGroup) {
 
 	defer func() {
-		session.Close()
+		session.Close(nil)
 		atomic.AddInt64(&l.numConnections, -1)
 		group.Done()
 	}()
