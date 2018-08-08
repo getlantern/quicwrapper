@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getlantern/netx"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -143,6 +145,44 @@ func TestEchoPar3(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestNetx(t *testing.T) {
+	l, err := echoServer(nil)
+	assert.NoError(t, err)
+	defer l.Close()
+
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	assert.NoError(t, err)
+
+	fakehost := "kjhsdafhkjsa.getiantem.org"
+	server := fmt.Sprintf("%s:%s", fakehost, port)
+
+	normalDialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	defer normalDialer.Close()
+	_, err = normalDialer.Dial()
+	assert.EqualError(t, err, fmt.Sprintf("lookup %s: no such host", fakehost))
+	normalDialer.Close()
+
+	dialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithNetx)
+	defer dialer.Close()
+	netx.OverrideResolveUDP(func(network string, addr string) (*net.UDPAddr, error) {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		if host == fakehost {
+			return net.ResolveUDPAddr(network, l.Addr().String())
+		} else {
+			return nil, fmt.Errorf("unexpected address %s", addr)
+		}
+	})
+
+	for i := 0; i < 525; i++ {
+		for _, test := range tests {
+			dialAndEcho(t, dialer, test)
+		}
+	}
 }
 
 func TestDialContextHandshakeStall(t *testing.T) {
