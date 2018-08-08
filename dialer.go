@@ -3,8 +3,10 @@ package quicwrapper
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"sync"
 
+	"github.com/getlantern/netx"
 	quic "github.com/lucas-clemente/quic-go"
 )
 
@@ -14,6 +16,20 @@ type QuicDialFN func(ctx context.Context, addr string, tlsConf *tls.Config, conf
 var (
 	defaultQuicDial QuicDialFN = quic.DialAddrContext
 )
+
+// Alternative QuicDial using netx swapped functions
+func DialWithNetx(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
+	udpAddr, err := netx.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	// XXX any reason to use an netx alternative here ?
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return nil, err
+	}
+	return quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+}
 
 // NewClient returns a client that creates multiplexed
 // QUIC connections in a single Session with the given address using
