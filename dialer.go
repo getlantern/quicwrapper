@@ -3,6 +3,9 @@ package quicwrapper
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"net"
 	"sync"
 
@@ -53,11 +56,28 @@ func NewClient(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFN
 	}
 }
 
+func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFN, cert *x509.Certificate) *Client {
+	if dial == nil {
+		dial = defaultQuicDial
+	}
+
+	return &Client{
+		session:    nil,
+		address:    addr,
+		tlsConf:    tlsConf,
+		config:     config,
+		dial:       dial,
+		pinnedCert: cert,
+	}
+
+}
+
 type Client struct {
 	session      quic.Session
 	handshakeErr error
 	address      string
 	tlsConf      *tls.Config
+	pinnedCert   *x509.Certificate
 	config       *Config
 	dialOnce     sync.Once
 	dial         QuicDialFN
@@ -134,6 +154,13 @@ func (c *Client) Dial() (*Conn, error) {
 func (c *Client) WarmUp(ctx context.Context) error {
 	c.dialOnce.Do(func() {
 		c.session, c.handshakeErr = c.dial(ctx, c.address, c.tlsConf, c.config)
+		if c.handshakeErr == nil && c.pinnedCert != nil {
+			c.handshakeErr = c.verifyPinnedCert()
+			if c.handshakeErr != nil {
+				c.session.Close(nil)
+				c.session = nil
+			}
+		}
 	})
 	return c.handshakeErr
 }
@@ -143,6 +170,26 @@ func (c *Client) WarmUp(ctx context.Context) error {
 func (c *Client) Close() error {
 	if c.session != nil {
 		return c.session.Close(nil)
+	}
+	return nil
+}
+
+func (c *Client) verifyPinnedCert() error {
+	serverCert := c.session.ConnectionState().PeerCertificates[0]
+	if !serverCert.Equal(c.pinnedCert) {
+		received := pem.EncodeToMemory(&pem.Block{
+			Type:    "CERTIFICATE",
+			Headers: nil,
+			Bytes:   serverCert.Raw,
+		})
+
+		expected := pem.EncodeToMemory(&pem.Block{
+			Type:    "CERTIFICATE",
+			Headers: nil,
+			Bytes:   c.pinnedCert.Raw,
+		})
+
+		return fmt.Errorf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
 	}
 	return nil
 }

@@ -60,7 +60,7 @@ func dialAndEcho(t *testing.T, dialer *Client, data []byte) {
 }
 
 func TestEchoSeq(t *testing.T) {
-	l, err := echoServer(nil)
+	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
@@ -75,7 +75,7 @@ func TestEchoSeq(t *testing.T) {
 }
 
 func TestEchoPar1(t *testing.T) {
-	l, err := echoServer(nil)
+	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
@@ -96,7 +96,7 @@ func TestEchoPar1(t *testing.T) {
 }
 
 func TestEchoPar2(t *testing.T) {
-	l, err := echoServer(nil)
+	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 	var wg sync.WaitGroup
@@ -119,7 +119,7 @@ func TestEchoPar2(t *testing.T) {
 }
 
 func TestEchoPar3(t *testing.T) {
-	l, err := echoServer(nil)
+	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 	var wg sync.WaitGroup
@@ -148,7 +148,7 @@ func TestEchoPar3(t *testing.T) {
 }
 
 func TestNetx(t *testing.T) {
-	l, err := echoServer(nil)
+	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
@@ -183,6 +183,61 @@ func TestNetx(t *testing.T) {
 			dialAndEcho(t, dialer, test)
 		}
 	}
+}
+
+func TestPinnedCert(t *testing.T) {
+	keyPair, err := generateKeyPair()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	goodCert, err := x509.ParseCertificate(keyPair.Certificate[0])
+	if !assert.NoError(t, err) {
+		return
+	}
+	goodBytes := pem.EncodeToMemory(&pem.Block{
+		Type:    "CERTIFICATE",
+		Headers: nil,
+		Bytes:   goodCert.Raw,
+	})
+
+	badPair, err := generateKeyPair()
+	if !assert.NoError(t, err) {
+		return
+	}
+	badCert, err := x509.ParseCertificate(badPair.Certificate[0])
+	if !assert.NoError(t, err) {
+		return
+	}
+	badBytes := pem.EncodeToMemory(&pem.Block{
+		Type:    "CERTIFICATE",
+		Headers: nil,
+		Bytes:   badCert.Raw,
+	})
+
+	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}})
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer l.Close()
+
+	server := l.Addr().String()
+
+	// no pinning -> validation failure
+	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false}, nil, nil)
+	_, err = noPinDialer.Dial()
+	assert.EqualError(t, err, "ProofInvalid")
+
+	// wrong cert
+	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
+	_, err = badDialer.Dial()
+	assert.EqualError(t, err, fmt.Sprintf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+
+	// correct cert
+	pinDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, goodCert)
+	_, err = pinDialer.Dial()
+	assert.NoError(t, err)
+
 }
 
 func TestDialContextHandshakeStall(t *testing.T) {
@@ -223,9 +278,15 @@ func stallHandshakeServer() (*net.UDPConn, error) {
 	return net.ListenUDP("udp", addr)
 }
 
-func echoServer(config *Config) (net.Listener, error) {
-
-	l, err := ListenAddr("127.0.0.1:0", generateTLSConfig(), config)
+func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
+	if tlsConf == nil {
+		tc, err := generateTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+		tlsConf = tc
+	}
+	l, err := ListenAddr("127.0.0.1:0", tlsConf, config)
 	if err != nil {
 		return nil, err
 	}
@@ -256,22 +317,27 @@ func echoServer(config *Config) (net.Listener, error) {
 	return l, nil
 }
 
-func generateTLSConfig() *tls.Config {
+func generateTLSConfig() (*tls.Config, error) {
+	tlsCert, err := generateKeyPair()
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}, nil
+}
+
+func generateKeyPair() (tls.Certificate, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
-		panic(err)
+		return tls.Certificate{}, err
 	}
 	template := x509.Certificate{SerialNumber: big.NewInt(1)}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
-		panic(err)
+		return tls.Certificate{}, err
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		panic(err)
-	}
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+	return tlsCert, err
 }
