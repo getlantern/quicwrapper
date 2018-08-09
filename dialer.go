@@ -157,7 +157,7 @@ func (c *Client) WarmUp(ctx context.Context) error {
 		if c.handshakeErr == nil && c.pinnedCert != nil {
 			c.handshakeErr = c.verifyPinnedCert()
 			if c.handshakeErr != nil {
-				c.session.Close(nil)
+				c.session.Close()
 				c.session = nil
 			}
 		}
@@ -169,7 +169,7 @@ func (c *Client) WarmUp(ctx context.Context) error {
 // (and all multiplexed connections)
 func (c *Client) Close() error {
 	if c.session != nil {
-		return c.session.Close(nil)
+		return c.session.Close()
 	}
 	return nil
 }
