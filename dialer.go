@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/getlantern/netx"
-	quic "github.com/lucas-clemente/quic-go"
+	quic "github.com/getlantern/quic-go"
 )
 
 // a QuicDialFN is a function that may be used to establish a new QUIC Session

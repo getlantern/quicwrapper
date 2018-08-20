@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/getlantern/golog"
-	quic "github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/qerr"
+	quic "github.com/getlantern/quic-go"
+	"github.com/getlantern/quic-go/qerr"
 )
 
 var (
