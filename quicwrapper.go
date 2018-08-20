@@ -22,7 +22,12 @@ var (
 	ErrListenerClosed = errors.New("listener closed")
 )
 
+type Bandwidth = quic.Bandwidth
 type Config = quic.Config
+
+const (
+	Mib = 1024 * 1024
+)
 
 var _ net.Conn = &Conn{}
 
@@ -138,4 +143,8 @@ func (c *Conn) PeerCertificates() []*x509.Certificate {
 	// the ConnectionState interface the quic-go api is
 	// considered unstable, so this is not exposed directly.
 	return c.session.ConnectionState().PeerCertificates
+}
+
+func (c *Conn) BandwidthEstimate() Bandwidth {
+	return c.session.BandwidthEstimate()
 }
