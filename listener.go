@@ -125,7 +125,13 @@ func (l *listener) listen() {
 
 func (l *listener) handleSession(session quic.Session, group *sync.WaitGroup) {
 
+	// keep a smoothed average of the bandwidth estimate
+	// for the session
+	bw := NewEMABandwidthSampler(session)
+	bw.Start()
+
 	defer func() {
+		bw.Stop()
 		session.Close()
 		atomic.AddInt64(&l.numConnections, -1)
 		group.Done()
@@ -149,7 +155,7 @@ func (l *listener) handleSession(session quic.Session, group *sync.WaitGroup) {
 			}
 		} else {
 			atomic.AddInt64(&l.numVirtualConnections, 1)
-			l.connections <- newConn(stream, session, l.streamClosed)
+			l.connections <- newConn(stream, session, bw, l.streamClosed)
 		}
 	}
 }

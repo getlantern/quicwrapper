@@ -111,7 +111,7 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 			err = err1
 			return
 		}
-		conn = newConn(stream, c.session, nil)
+		conn = newConn(stream, c.session, c.session, nil)
 	}()
 
 	select {
