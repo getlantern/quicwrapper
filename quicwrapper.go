@@ -22,7 +22,6 @@ var (
 	ErrListenerClosed = errors.New("listener closed")
 )
 
-type Bandwidth = quic.Bandwidth
 type Config = quic.Config
 
 const (
@@ -35,12 +34,13 @@ var _ net.Conn = &Conn{}
 type Conn struct {
 	stream    quic.Stream
 	session   quic.Session
+	bw        BandwidthEstimator
 	onClose   func()
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(stream quic.Stream, session quic.Session, onClose func()) *Conn {
+func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, onClose func()) *Conn {
 	if onClose == nil {
 		onClose = func() {}
 	}
@@ -48,6 +48,7 @@ func newConn(stream quic.Stream, session quic.Session, onClose func()) *Conn {
 	return &Conn{
 		stream:  stream,
 		session: session,
+		bw:      bw,
 		onClose: onClose,
 	}
 }
@@ -146,5 +147,5 @@ func (c *Conn) PeerCertificates() []*x509.Certificate {
 }
 
 func (c *Conn) BandwidthEstimate() Bandwidth {
-	return c.session.BandwidthEstimate()
+	return c.bw.BandwidthEstimate()
 }

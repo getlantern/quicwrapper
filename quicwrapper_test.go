@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	mrand "math/rand"
 	"net"
 	"sync"
 	"testing"
@@ -267,6 +268,35 @@ func TestDialContextHandshakeStall(t *testing.T) {
 	case <-time.After(2 * timeout):
 		t.Errorf("Dial did not fail within twice timeout.")
 	}
+}
+
+func TestBandwidthEstimateSmoke(t *testing.T) {
+	min := int64(5000)
+	max := int64(10000000)
+	rbw := &RandBW{min, max, 0}
+
+	period := 10 * time.Millisecond
+	window := 100 * time.Millisecond
+	runtime := 1 * time.Second
+	est := NewEMABandwidthSamplerParams(rbw, period, window)
+
+	est.Start()
+	time.Sleep(runtime)
+	est.Stop()
+	final := est.BandwidthEstimate()
+	assert.True(t, final >= Bandwidth(min) && final <= Bandwidth(max))
+	assert.True(t, rbw.samples > 50 && rbw.samples < 150, "rbw samples = %d", rbw.samples)
+}
+
+type RandBW struct {
+	min, max int64
+	samples  int64
+}
+
+func (r *RandBW) BandwidthEstimate() Bandwidth {
+	bw := Bandwidth(r.min + mrand.Int63n(r.max-r.min))
+	r.samples += 1
+	return bw
 }
 
 // starts a server that does not complete the quic handshake
