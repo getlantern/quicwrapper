@@ -24,10 +24,6 @@ var (
 
 type Config = quic.Config
 
-const (
-	Mib = 1024 * 1024
-)
-
 var _ net.Conn = &Conn{}
 
 // wraps quic.Stream and other info to implement net.Conn
@@ -98,7 +94,6 @@ func (c *Conn) close() error {
 	// not fully close until the read side is drained ...
 	c.closeErr = c.stream.Close()
 
-	// XXX ? this deadlocks with closing the session
 	go func() {
 		// attempt to drain any pending readable data from the connection
 		// this is necessary for the stream to be considered fully closed.

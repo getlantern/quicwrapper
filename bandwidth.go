@@ -11,6 +11,10 @@ import (
 
 type Bandwidth = quic.Bandwidth
 
+const (
+	Mib = 1024 * 1024
+)
+
 type BandwidthEstimator interface {
 	BandwidthEstimate() Bandwidth
 }
