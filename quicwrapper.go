@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/getlantern/golog"
 	quic "github.com/getlantern/quic-go"
@@ -28,7 +27,7 @@ var _ net.Conn = &Conn{}
 
 // wraps quic.Stream and other info to implement net.Conn
 type Conn struct {
-	stream    quic.Stream
+	quic.Stream
 	session   quic.Session
 	bw        BandwidthEstimator
 	onClose   func()
@@ -42,7 +41,7 @@ func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, on
 	}
 
 	return &Conn{
-		stream:  stream,
+		Stream:  stream,
 		session: session,
 		bw:      bw,
 		onClose: onClose,
@@ -51,7 +50,7 @@ func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, on
 
 // implements net.Conn.Read
 func (c *Conn) Read(b []byte) (int, error) {
-	n, err := c.stream.Read(b)
+	n, err := c.Stream.Read(b)
 	if err != nil {
 		quicErr := qerr.ToQuicError(err)
 		code := quicErr.ErrorCode
@@ -65,7 +64,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 
 // implements net.Conn.Write
 func (c *Conn) Write(b []byte) (int, error) {
-	n, err := c.stream.Write(b)
+	n, err := c.Stream.Write(b)
 	if err != nil {
 		quicErr := qerr.ToQuicError(err)
 		code := quicErr.ErrorCode
@@ -92,12 +91,12 @@ func (c *Conn) Close() error {
 func (c *Conn) close() error {
 	// this only closes the write side, the connection will
 	// not fully close until the read side is drained ...
-	c.closeErr = c.stream.Close()
+	c.closeErr = c.Stream.Close()
 
 	go func() {
 		// attempt to drain any pending readable data from the connection
 		// this is necessary for the stream to be considered fully closed.
-		io.Copy(ioutil.Discard, c.stream)
+		io.Copy(ioutil.Discard, c.Stream)
 	}()
 
 	c.onClose()
@@ -112,26 +111,6 @@ func (c *Conn) LocalAddr() net.Addr {
 // implements net.Conn.RemoteAddr
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
-}
-
-// implements net.Conn.SetDeadline
-func (c *Conn) SetDeadline(t time.Time) error {
-	return c.stream.SetDeadline(t)
-}
-
-// implements net.Conn.SetReadDeadline
-func (c *Conn) SetReadDeadline(t time.Time) error {
-	return c.stream.SetReadDeadline(t)
-}
-
-// implements net.Conn.SetWriteDeadline
-func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return c.stream.SetWriteDeadline(t)
-}
-
-// Returns unique identifier for the underlying stream
-func (c *Conn) StreamID() quic.StreamID {
-	return c.stream.StreamID()
 }
 
 // Returns certificates presented by peer

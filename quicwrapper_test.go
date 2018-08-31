@@ -149,6 +149,8 @@ func TestEchoPar3(t *testing.T) {
 }
 
 func TestNetx(t *testing.T) {
+	defer netx.Reset()
+
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
@@ -159,10 +161,10 @@ func TestNetx(t *testing.T) {
 	fakehost := "kjhsdafhkjsa.getiantem.org"
 	server := fmt.Sprintf("%s:%s", fakehost, port)
 
-	normalDialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	normalDialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithoutNetx)
 	defer normalDialer.Close()
 	_, err = normalDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("lookup %s: no such host", fakehost))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: lookup %s: no such host", server, fakehost))
 	normalDialer.Close()
 
 	dialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithNetx)
@@ -227,12 +229,11 @@ func TestPinnedCert(t *testing.T) {
 	// no pinning -> validation failure
 	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.EqualError(t, err, "ProofInvalid")
-
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: ProofInvalid", server))
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", server, goodBytes, badBytes))
 
 	// correct cert
 	pinDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, goodCert)
@@ -286,6 +287,55 @@ func TestBandwidthEstimateSmoke(t *testing.T) {
 	final := est.BandwidthEstimate()
 	assert.True(t, final >= Bandwidth(min) && final <= Bandwidth(max))
 	assert.True(t, rbw.samples > 50 && rbw.samples < 150, "rbw samples = %d", rbw.samples)
+}
+
+func TestStreamRequestCap(t *testing.T) {
+
+	maxPendingTest := int64(2)
+	resetStreamRequestCap(maxPendingTest)
+	defer resetStreamRequestCap(maxPendingStreamRequests)
+
+	l, err := stallHandshakeServer()
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer l.Close()
+
+	addr := l.LocalAddr().String()
+	dialer := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	timeout := 100 * time.Millisecond
+
+	// start maximum stream requests with no timeout
+	ctx1, cancelStalled := context.WithCancel(context.Background())
+	for i := int64(0); i < maxPendingTest; i++ {
+		go func() {
+			dialer.DialContext(ctx1)
+		}()
+	}
+	time.Sleep(250 * time.Millisecond)
+
+	// try to request another stream, should result in max streams
+	// requests in flight being exceeded after timeout
+	ctx2, _ := context.WithTimeout(context.Background(), timeout)
+	_, err = dialer.DialContext(ctx2)
+	assert.EqualError(t, err, "maximum pending stream requests reached: context deadline exceeded")
+
+	// a different client will also encounter this limit
+	dialer2 := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	ctx3, _ := context.WithTimeout(context.Background(), timeout)
+	_, err = dialer2.DialContext(ctx3)
+	assert.EqualError(t, err, "maximum pending stream requests reached: context deadline exceeded")
+
+	// clear out stalled dials
+	cancelStalled()
+	time.Sleep(250 * time.Millisecond)
+
+	// now a new client would be able to proceed
+	// (but still encounter a timeout)
+	dialer3 := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	ctx4, _ := context.WithTimeout(context.Background(), timeout)
+	_, err = dialer3.DialContext(ctx4)
+	assert.EqualError(t, err, "establishing stream: context deadline exceeded")
 }
 
 type RandBW struct {

@@ -12,7 +12,7 @@ import (
 type Bandwidth = quic.Bandwidth
 
 const (
-	Mib = 1024 * 1024
+	Mib = 1024 * 1024 // 1 Mebibit Bandwidth
 )
 
 type BandwidthEstimator interface {
