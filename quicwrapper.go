@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/getlantern/golog"
+	"github.com/getlantern/ops"
 	quic "github.com/getlantern/quic-go"
 	"github.com/getlantern/quic-go/qerr"
 )
@@ -93,11 +94,11 @@ func (c *Conn) close() error {
 	// not fully close until the read side is drained ...
 	c.closeErr = c.Stream.Close()
 
-	go func() {
+	ops.Go(func() {
 		// attempt to drain any pending readable data from the connection
 		// this is necessary for the stream to be considered fully closed.
 		io.Copy(ioutil.Discard, c.Stream)
-	}()
+	})
 
 	c.onClose()
 	return c.closeErr

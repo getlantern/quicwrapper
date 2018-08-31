@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/getlantern/ema"
+	"github.com/getlantern/ops"
 	quic "github.com/getlantern/quic-go"
 )
 
@@ -58,7 +59,7 @@ func (bs *EMABandwidthSampler) BandwidthEstimate() Bandwidth {
 
 func (bs *EMABandwidthSampler) Start() {
 	bs.start.Do(func() {
-		go func() {
+		ops.Go(func() {
 			for {
 				select {
 				case <-bs.done:
@@ -67,7 +68,7 @@ func (bs *EMABandwidthSampler) Start() {
 					bs.update()
 				}
 			}
-		}()
+		})
 	})
 }
 

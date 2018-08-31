@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/getlantern/ops"
 	quic "github.com/getlantern/quic-go"
 	"github.com/getlantern/quic-go/qerr"
 )
@@ -27,8 +28,8 @@ func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener,
 		acceptError:  make(chan error, 1),
 		closedSignal: make(chan struct{}),
 	}
-	go l.listen()
-	go l.logStats()
+	ops.Go(l.listen)
+	ops.Go(l.logStats)
 
 	return l, nil
 }
@@ -117,7 +118,7 @@ func (l *listener) listen() {
 			return
 		} else {
 			atomic.AddInt64(&l.numConnections, 1)
-			go l.handleSession(session, group)
+			ops.Go(func() { l.handleSession(session, group) })
 			group.Add(1)
 		}
 	}

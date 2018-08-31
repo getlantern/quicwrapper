@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/getlantern/netx"
+	"github.com/getlantern/ops"
 	quic "github.com/getlantern/quic-go"
 	"golang.org/x/sync/semaphore"
 )
@@ -131,7 +132,7 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 
 	done := make(chan struct{})
 
-	go func() {
+	ops.Go(func() {
 		defer rcap.Release(1)
 		defer close(done)
 		var err1 error
@@ -146,7 +147,7 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 			return
 		}
 		conn = newConn(stream, c.session, c.session, nil)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -154,12 +155,12 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 	case <-ctx.Done():
 		// context expired
 		// cleanup when/if call returns
-		go func() {
+		ops.Go(func() {
 			<-done
 			if conn != nil {
 				conn.Close()
 			}
-		}()
+		})
 		return nil, fmt.Errorf("establishing stream: %v", ctx.Err())
 	}
 }
