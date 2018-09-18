@@ -289,6 +289,46 @@ func TestBandwidthEstimateSmoke(t *testing.T) {
 	assert.True(t, rbw.samples > 50 && rbw.samples < 150, "rbw samples = %d", rbw.samples)
 }
 
+func TestNetErrDeadline(t *testing.T) {
+	l, err := echoServer(nil, nil)
+	assert.NoError(t, err)
+	defer l.Close()
+
+	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	defer dialer.Close()
+
+	conn, err := dialer.Dial()
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() {
+		err = conn.Close()
+		assert.NoError(t, err)
+	}()
+
+	expired := time.Now().Add(-100 * time.Millisecond)
+
+	conn.SetReadDeadline(expired)
+	bs := make([]byte, 256, 256)
+	n, err := conn.Read(bs)
+	assert.Equalf(t, 0, n, "read succeeded unexpectedly (%d)", n)
+	netErr, ok := err.(net.Error)
+	assert.Truef(t, ok, "expected timeout error: %v", err)
+	if ok {
+		assert.Truef(t, netErr.Timeout(), "expected timeout error: %v", err)
+	}
+
+	conn.SetWriteDeadline(expired)
+	n, err = conn.Write(bs)
+	assert.Equalf(t, 0, n, "write succeeded unexpectedly (%d)", n)
+	netErr, ok = err.(net.Error)
+	assert.Truef(t, ok, "expected timeout error: %v", err)
+	if ok {
+		assert.Truef(t, netErr.Timeout(), "expected timeout error: %v", err)
+	}
+
+}
+
 func TestStreamRequestCap(t *testing.T) {
 
 	maxPendingTest := int64(2)
