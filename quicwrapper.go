@@ -154,7 +154,9 @@ func mapErr(err error) error {
 	if err == context.DeadlineExceeded {
 		return ErrTimeout
 	}
-
+	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+		return ErrTimeout
+	}
 	quicErr := qerr.ToQuicError(err)
 	code := quicErr.ErrorCode
 	if code == qerr.NetworkIdleTimeout || code == qerr.HandshakeTimeout {
