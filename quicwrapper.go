@@ -4,6 +4,7 @@
 package quicwrapper
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"io"
@@ -60,6 +61,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 			err = io.EOF
 		}
 	}
+	err = mapErr(err)
 	return n, err
 }
 
@@ -77,7 +79,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 			err = nil
 		}
 	}
-
+	err = mapErr(err)
 	return n, err
 }
 
@@ -123,4 +125,39 @@ func (c *Conn) PeerCertificates() []*x509.Certificate {
 
 func (c *Conn) BandwidthEstimate() Bandwidth {
 	return c.bw.BandwidthEstimate()
+}
+
+var _ net.Error = &netErr{}
+
+// an error type that fulfills the net.Error interface
+type netErr struct {
+	Err         error
+	IsTimeout   bool
+	IsTemporary bool
+}
+
+func (e *netErr) Error() string   { return e.Err.Error() }
+func (e *netErr) Timeout() bool   { return e.IsTimeout }
+func (e *netErr) Temporary() bool { return e.IsTemporary }
+
+// wraps certain error types in a netErr
+// for external packages expecting errors
+// matching the net.Error interface.  There
+// is some similar logic hiding in the
+// net package itself :P
+func mapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if err == context.DeadlineExceeded {
+		return &netErr{err, true, true}
+	}
+	quicErr := qerr.ToQuicError(err)
+	code := quicErr.ErrorCode
+	if code == qerr.NetworkIdleTimeout || code == qerr.HandshakeTimeout {
+		return &netErr{err, true, true}
+	}
+
+	return err
 }
