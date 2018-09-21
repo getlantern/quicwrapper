@@ -21,7 +21,6 @@ import (
 var (
 	log               = golog.LoggerFor("quicwrapper")
 	ErrListenerClosed = errors.New("listener closed")
-	ErrTimeout        = &netErr{errors.New("i/o timeout"), true, true}
 )
 
 type Config = quic.Config
@@ -152,12 +151,12 @@ func mapErr(err error) error {
 	}
 
 	if err == context.DeadlineExceeded {
-		return ErrTimeout
+		return &netErr{err, true, true}
 	}
 	quicErr := qerr.ToQuicError(err)
 	code := quicErr.ErrorCode
 	if code == qerr.NetworkIdleTimeout || code == qerr.HandshakeTimeout {
-		return ErrTimeout
+		return &netErr{err, true, true}
 	}
 
 	return err
