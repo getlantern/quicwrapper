@@ -7,7 +7,7 @@ import (
 
 	"github.com/getlantern/ema"
 	"github.com/getlantern/ops"
-	quic "github.com/getlantern/quic-go"
+	quic "github.com/lucas-clemente/quic-go"
 )
 
 type Bandwidth = quic.Bandwidth
