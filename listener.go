@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/getlantern/ops"
-	quic "github.com/getlantern/quic-go"
-	"github.com/getlantern/quic-go/qerr"
+	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/qerr"
 )
 
 // ListenAddr creates a QUIC server listening on a given address.

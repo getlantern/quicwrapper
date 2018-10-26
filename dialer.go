@@ -12,7 +12,7 @@ import (
 
 	"github.com/getlantern/netx"
 	"github.com/getlantern/ops"
-	quic "github.com/getlantern/quic-go"
+	quic "github.com/lucas-clemente/quic-go"
 	"golang.org/x/sync/semaphore"
 )
 
