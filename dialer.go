@@ -213,7 +213,12 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) verifyPinnedCert() error {
-	serverCert := c.session.ConnectionState().PeerCertificates[0]
+	certs := c.session.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return fmt.Errorf("Server did not present any certificates!")
+	}
+
+	serverCert := certs[0]
 	if !serverCert.Equal(c.pinnedCert) {
 		received := pem.EncodeToMemory(&pem.Block{
 			Type:    "CERTIFICATE",

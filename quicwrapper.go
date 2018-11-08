@@ -8,12 +8,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net"
 	"sync"
 
 	"github.com/getlantern/golog"
-	"github.com/getlantern/ops"
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/qerr"
 )
@@ -92,16 +90,11 @@ func (c *Conn) Close() error {
 }
 
 func (c *Conn) close() error {
-	// this only closes the write side, the connection will
-	// not fully close until the read side is drained ...
+	// this only closes the write side
 	c.closeErr = c.Stream.Close()
-
-	ops.Go(func() {
-		// attempt to drain any pending readable data from the connection
-		// this is necessary for the stream to be considered fully closed.
-		io.Copy(ioutil.Discard, c.Stream)
-	})
-
+	// to close both ends, this also forefully
+	// cancels any pending reads / in flight data.
+	c.Stream.CancelRead(0)
 	c.onClose()
 	return c.closeErr
 }
