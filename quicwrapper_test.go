@@ -425,10 +425,7 @@ func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err = io.Copy(conn, conn)
-				if err != nil {
-					log.Errorf("echoing data: %v", err)
-				}
+				io.Copy(conn, conn)
 				conn.Close()
 			}()
 		}
