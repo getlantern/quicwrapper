@@ -227,9 +227,9 @@ func TestPinnedCert(t *testing.T) {
 	server := l.Addr().String()
 
 	// no pinning -> validation failure
-	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false}, nil, nil)
+	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: ProofInvalid", server))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: x509: certificate has expired or is not yet valid", server))
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
