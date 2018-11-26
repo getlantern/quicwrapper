@@ -4,21 +4,24 @@
 package quicwrapper
 
 import (
-	"context"
 	"crypto/x509"
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/getlantern/golog"
 	quic "github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/qerr"
 )
 
 var (
 	log               = golog.LoggerFor("quicwrapper")
 	ErrListenerClosed = errors.New("listener closed")
+)
+
+const (
+	peerGoingAway = "PeerGoingAway:"
 )
 
 type Config = quic.Config
@@ -51,33 +54,13 @@ func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, on
 // implements net.Conn.Read
 func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Stream.Read(b)
-	if err != nil {
-		quicErr := qerr.ToQuicError(err)
-		code := quicErr.ErrorCode
-		// this is an "expected" way for a stream to close
-		if code == qerr.PeerGoingAway {
+	if err != nil && err != io.EOF {
+		// remote end closed stream
+		serr, ok := err.(quic.StreamError)
+		if ok && serr.Canceled() {
 			err = io.EOF
 		}
 	}
-	err = mapErr(err)
-	return n, err
-}
-
-// implements net.Conn.Write
-func (c *Conn) Write(b []byte) (int, error) {
-	n, err := c.Stream.Write(b)
-	if err != nil {
-		quicErr := qerr.ToQuicError(err)
-		code := quicErr.ErrorCode
-		// This quic error shows up sort of arbitrarily
-		// if the stream closes soon after completing a
-		// write (by a race).  It's not consistent enough to
-		// be useful.
-		if n == len(b) && code == qerr.PeerGoingAway {
-			err = nil
-		}
-	}
-	err = mapErr(err)
 	return n, err
 }
 
@@ -120,37 +103,9 @@ func (c *Conn) BandwidthEstimate() Bandwidth {
 	return c.bw.BandwidthEstimate()
 }
 
-var _ net.Error = &netErr{}
-
-// an error type that fulfills the net.Error interface
-type netErr struct {
-	Err         error
-	IsTimeout   bool
-	IsTemporary bool
-}
-
-func (e *netErr) Error() string   { return e.Err.Error() }
-func (e *netErr) Timeout() bool   { return e.IsTimeout }
-func (e *netErr) Temporary() bool { return e.IsTemporary }
-
-// wraps certain error types in a netErr
-// for external packages expecting errors
-// matching the net.Error interface.  There
-// is some similar logic hiding in the
-// net package itself :P
-func mapErr(err error) error {
+func isPeerGoingAway(err error) bool {
 	if err == nil {
-		return nil
+		return false
 	}
-
-	if err == context.DeadlineExceeded {
-		return &netErr{err, true, true}
-	}
-	quicErr := qerr.ToQuicError(err)
-	code := quicErr.ErrorCode
-	if code == qerr.NetworkIdleTimeout || code == qerr.HandshakeTimeout {
-		return &netErr{err, true, true}
-	}
-
-	return err
+	return strings.HasPrefix(err.Error(), peerGoingAway)
 }

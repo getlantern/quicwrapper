@@ -100,6 +100,7 @@ func TestEchoPar2(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
+
 	var wg sync.WaitGroup
 
 	for i := 0; i < 25; i++ {
@@ -109,7 +110,7 @@ func TestEchoPar2(t *testing.T) {
 			dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
 			defer dialer.Close()
 
-			for i := 0; i < 25; i++ {
+			for j := 0; j < 25; j++ {
 				for _, test := range tests {
 					dialAndEcho(t, dialer, test)
 				}
@@ -424,9 +425,9 @@ func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
 			}
 			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				io.Copy(conn, conn)
 				conn.Close()
+				wg.Done()
 			}()
 		}
 	}()
