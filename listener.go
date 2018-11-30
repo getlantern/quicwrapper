@@ -145,10 +145,10 @@ func (l *listener) handleSession(session quic.Session) {
 		stream, err := session.AcceptStream()
 		if err != nil {
 			if isPeerGoingAway(err) {
-				log.Tracef("Closing session: peer going away.")
+				log.Tracef("Accepting stream: Peer going away.")
 				return
 			} else {
-				log.Errorf("Error accepting stream: %v", err)
+				log.Errorf("Accepting stream: %v", err)
 				return
 			}
 		} else {

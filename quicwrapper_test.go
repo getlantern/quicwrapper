@@ -100,7 +100,6 @@ func TestEchoPar2(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
-
 	var wg sync.WaitGroup
 
 	for i := 0; i < 25; i++ {
