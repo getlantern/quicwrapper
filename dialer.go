@@ -207,6 +207,7 @@ func (c *Client) Connect(ctx context.Context) error {
 // (and all multiplexed connections)
 func (c *Client) Close() error {
 	if c.session != nil {
+		log.Debugf("Closing client quic session.")
 		return c.session.Close()
 	}
 	return nil

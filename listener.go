@@ -9,7 +9,6 @@ import (
 
 	"github.com/getlantern/ops"
 	quic "github.com/lucas-clemente/quic-go"
-	"github.com/lucas-clemente/quic-go/qerr"
 )
 
 // ListenAddr creates a QUIC server listening on a given address.
@@ -103,6 +102,8 @@ func (l *listener) listen() {
 		for c := range l.connections {
 			c.Close()
 		}
+
+		log.Debugf("Listener finished with Connections: %d Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
 	}()
 
 	for {
@@ -118,13 +119,17 @@ func (l *listener) listen() {
 			return
 		} else {
 			atomic.AddInt64(&l.numConnections, 1)
-			ops.Go(func() { l.handleSession(session, group) })
 			group.Add(1)
+			ops.Go(func() {
+				l.handleSession(session)
+				atomic.AddInt64(&l.numConnections, -1)
+				group.Done()
+			})
 		}
 	}
 }
 
-func (l *listener) handleSession(session quic.Session, group *sync.WaitGroup) {
+func (l *listener) handleSession(session quic.Session) {
 
 	// keep a smoothed average of the bandwidth estimate
 	// for the session
@@ -134,24 +139,16 @@ func (l *listener) handleSession(session quic.Session, group *sync.WaitGroup) {
 	defer func() {
 		bw.Stop()
 		session.Close()
-		atomic.AddInt64(&l.numConnections, -1)
-		group.Done()
 	}()
 
 	for {
 		stream, err := session.AcceptStream()
 		if err != nil {
-			quicErr := qerr.ToQuicError(err)
-			code := quicErr.ErrorCode
-			switch code {
-			case qerr.PeerGoingAway:
-				log.Tracef("Session closed: %s", code)
+			if isPeerGoingAway(err) {
+				log.Tracef("Accepting stream: Peer going away.")
 				return
-			case qerr.NetworkIdleTimeout:
-				log.Tracef("Session closed: %s", code)
-				return
-			default:
-				log.Errorf("Error accepting stream: %s", code)
+			} else {
+				log.Errorf("Accepting stream: %v", err)
 				return
 			}
 		} else {
@@ -173,7 +170,8 @@ func (l *listener) logStats() {
 				log.Debugf("Connections: %d   Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
 			}
 		case <-l.closedSignal:
-			log.Debug("Done logging stats")
+			log.Debugf("Connections: %d   Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
+			log.Debug("Done logging stats.")
 			return
 		}
 	}
