@@ -181,11 +181,19 @@ func TestNetx(t *testing.T) {
 		}
 	})
 
+	calledListenOverride := false
+	netx.OverrideListenUDP(func(network string, laddr *net.UDPAddr) (*net.UDPConn, error) {
+		calledListenOverride = true
+		return net.ListenUDP(network, laddr)
+	})
+
 	for i := 0; i < 525; i++ {
 		for _, test := range tests {
 			dialAndEcho(t, dialer, test)
 		}
 	}
+
+	assert.True(t, calledListenOverride)
 }
 
 func TestPinnedCert(t *testing.T) {
