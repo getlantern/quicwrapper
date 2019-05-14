@@ -7,10 +7,10 @@ import (
 
 	"github.com/getlantern/ema"
 	"github.com/getlantern/ops"
-	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/internal/congestion"
 )
 
-type Bandwidth = quic.Bandwidth
+type Bandwidth = congestion.Bandwidth
 
 const (
 	Mib = 1024 * 1024 // 1 Mebibit Bandwidth
