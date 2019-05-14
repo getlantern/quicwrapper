@@ -7,10 +7,9 @@ import (
 
 	"github.com/getlantern/ema"
 	"github.com/getlantern/ops"
-	"github.com/lucas-clemente/quic-go/internal/congestion"
 )
 
-type Bandwidth = congestion.Bandwidth
+type Bandwidth uint64
 
 const (
 	Mib = 1024 * 1024 // 1 Mebibit Bandwidth
