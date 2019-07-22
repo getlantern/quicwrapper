@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getlantern/fdcount"
 	"github.com/getlantern/netx"
 	"github.com/stretchr/testify/assert"
 )
@@ -150,7 +151,6 @@ func TestEchoPar3(t *testing.T) {
 
 func TestNetx(t *testing.T) {
 	defer netx.Reset()
-
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
@@ -161,8 +161,15 @@ func TestNetx(t *testing.T) {
 	fakehost := "kjhsdafhkjsa.getiantem.org"
 	server := fmt.Sprintf("%s:%s", fakehost, port)
 
+	_, fdc, _ := fdcount.Matching("UDP")
+	defer func() {
+		err = fdc.AssertDelta(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
 	normalDialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithoutNetx)
-	defer normalDialer.Close()
 	_, err = normalDialer.Dial()
 	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: lookup %s: no such host", server, fakehost))
 	normalDialer.Close()

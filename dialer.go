@@ -41,6 +41,20 @@ func resetStreamRequestCap(n int64) {
 	streamRequestCap.Store(semaphore.NewWeighted(n))
 }
 
+type wrappedSession struct {
+	quic.Session
+	udpConn *net.UDPConn
+}
+
+func (w wrappedSession) Close() error {
+	err := w.Session.Close()
+	err2 := w.udpConn.Close()
+	if err == nil {
+		err = err2
+	}
+	return err
+}
+
 // QuicDialFN using netx swapped functions
 func DialWithNetx(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
 	udpAddr, err := netx.ResolveUDPAddr("udp", addr)
@@ -51,7 +65,13 @@ func DialWithNetx(ctx context.Context, addr string, tlsConf *tls.Config, config 
 	if err != nil {
 		return nil, err
 	}
-	return quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+	ses, err := quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+	if err != nil {
+		udpConn.Close()
+		return nil, err
+	}
+
+	return wrappedSession{ses, udpConn}, nil
 }
 
 // NewClient returns a client that creates multiplexed
