@@ -24,7 +24,7 @@ import (
 var tests [][]byte
 
 func init() {
-	rb := make([]byte, 1024)
+	rb := make([]byte, 4096)
 	rand.Read(rb)
 	tests = [][]byte{
 		[]byte("x"),
@@ -69,7 +69,7 @@ func TestEchoSeq(t *testing.T) {
 	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
 	defer dialer.Close()
 
-	for i := 0; i < 525; i++ {
+	for i := 0; i < 5250; i++ {
 		for _, test := range tests {
 			dialAndEcho(t, dialer, test)
 		}
@@ -425,28 +425,28 @@ func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	go func() {
-		var wg sync.WaitGroup
-		defer wg.Wait()
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				if err != ErrListenerClosed {
-					log.Errorf("accepting connection: %v", err)
-				}
-				return
-			}
-			wg.Add(1)
-			go func() {
-				io.Copy(conn, conn)
-				conn.Close()
-				wg.Done()
-			}()
-		}
-	}()
-
+	go runEchoServer(l)
 	return l, nil
+}
+
+func runEchoServer(l net.Listener) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			if err != ErrListenerClosed {
+				log.Errorf("accepting connection: %v", err)
+			}
+			return
+		}
+		wg.Add(1)
+		go func() {
+			io.Copy(conn, conn)
+			conn.Close()
+			wg.Done()
+		}()
+	}
 }
 
 func generateTLSConfig() (*tls.Config, error) {

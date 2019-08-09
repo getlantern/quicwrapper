@@ -64,6 +64,19 @@ func (c *Conn) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// implements net.Conn.Write
+func (c *Conn) Write(b []byte) (int, error) {
+	n, err := c.Stream.Write(b)
+	if err != nil && err != io.EOF {
+		// treat "stop sending" as EOF
+		serr, ok := err.(quic.StreamError)
+		if ok && serr.Canceled() {
+			err = io.EOF
+		}
+	}
+	return n, err
+}
+
 // implements net.Conn.Close
 func (c *Conn) Close() error {
 	c.closeOnce.Do(func() {

@@ -14,12 +14,24 @@ import (
 // ListenAddr creates a QUIC server listening on a given address.
 // The net.Conn instances returned by the net.Listener may be multiplexed connections.
 func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener, error) {
-
 	ql, err := quic.ListenAddr(addr, tlsConf, config)
 	if err != nil {
 		return nil, err
 	}
+	return listen(ql, tlsConf, config)
+}
 
+// Listen creates a QUIC server listening on a given net.PacketConn
+// The net.Conn instances returned by the net.Listener may be multiplexed connections.
+func Listen(pconn net.PacketConn, tlsConf *tls.Config, config *Config) (net.Listener, error) {
+	ql, err := quic.Listen(pconn, tlsConf, config)
+	if err != nil {
+		return nil, err
+	}
+	return listen(&quicListenerCloser{ql, pconn}, tlsConf, config)
+}
+
+func listen(ql quic.Listener, tlsConf *tls.Config, config *Config) (net.Listener, error) {
 	l := &listener{
 		quicListener: ql,
 		config:       config,
@@ -31,6 +43,20 @@ func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener,
 	ops.Go(l.logStats)
 
 	return l, nil
+}
+
+type quicListenerCloser struct {
+	quic.Listener
+	conn net.PacketConn
+}
+
+func (l *quicListenerCloser) Close() error {
+	err := l.Listener.Close()
+	err2 := l.conn.Close()
+	if err == nil {
+		err = err2
+	}
+	return err
 }
 
 var _ net.Listener = &listener{}
