@@ -28,18 +28,6 @@ const (
 var packetBuffers = bpool.NewBytePool(maxBuffers,maxRcvSize)
 
 
-func getPacketBuffer() []byte {
-	buf := packetBuffers.Get()
-	return buf[:maxRcvSize]
-}
-
-func releasePacketBuffer(buf []byte) {
-	if cap(buf) != maxRcvSize {
-		panic("releasePacketBuffer called with packet of wrong size!")
-	}
-	packetBuffers.Put(buf)
-}
-
 func DefaultOQuicConfig(key []byte) *OQuicConfig {
 	return &OQuicConfig{
 		Key: key,
@@ -59,7 +47,7 @@ type OQuicConfig struct {
 }
 
 func (c *OQuicConfig) validate() error {
-	if c.Cipher != "" && !strings.EqualFold(c.Cipher, CipherSalsa20) && strings.EqualFold(c.Cipher, CipherXSalsa20) {
+	if c.Cipher != "" && !strings.EqualFold(c.Cipher, CipherSalsa20) && !strings.EqualFold(c.Cipher, CipherXSalsa20) {
 		return fmt.Errorf("Unsupported cipher: %s", c.Cipher)
 	}
 	if len(c.Key) != 32 {
@@ -183,8 +171,8 @@ func NewSalsa20Enveloper(conn net.PacketConn, config *OQuicConfig) (*salsa20Enve
 
 // overrides net.PacketConn.ReadFrom
 func (c *salsa20Enveloper) ReadFrom(p []byte) (int, net.Addr, error) {
-	buf := getPacketBuffer()
-	defer releasePacketBuffer(buf)
+	buf := packetBuffers.Get()
+	defer packetBuffers.Put(buf)
 
 	for {
 		n, addr, err := c.PacketConn.ReadFrom(buf)
@@ -192,8 +180,7 @@ func (c *salsa20Enveloper) ReadFrom(p []byte) (int, net.Addr, error) {
 			return 0, addr, err
 		}
 		if n <= c.nonceSize {
-			log.Debugf("dropping short packet? (len=%d <= %d)", n, c.nonceSize)
-			continue
+			return 0, addr, fmt.Errorf("short oquic packet (len=%d <= %d)", n, c.nonceSize)
 		}
 
 		salsa20.XORKeyStream(p, buf[c.nonceSize:n], buf[:c.nonceSize], &c.key)
@@ -203,9 +190,9 @@ func (c *salsa20Enveloper) ReadFrom(p []byte) (int, net.Addr, error) {
 		}
 		n -= c.nonceSize
 
-		padBytes, err := c.readPaddingSize(p[:n])
-		if err != nil {
-			return 0, addr, err
+		padBytes := int(p[n-1])
+		if padBytes >= n || padBytes <= 0 {
+			return 0, addr, fmt.Errorf("invalid oquic padding marker: %d (len=%d)", padBytes, n)
 		}
 		n -= padBytes
 		atomic.AddUint64(&c.dataBytes, uint64(n))
@@ -220,8 +207,8 @@ func (c *salsa20Enveloper) WriteTo(p []byte, addr net.Addr) (int, error) {
 		return 0, fmt.Errorf("packet too long (%d)", len(p))
 	}
 
-	buf := getPacketBuffer()
-	defer releasePacketBuffer(buf)
+	buf := packetBuffers.Get()
+	defer packetBuffers.Put(buf)
 	plen := 0
 
 	_, err := rand.Read(buf[:c.nonceSize])
@@ -313,7 +300,7 @@ func (c *salsa20Enveloper) addPadding(buf []byte, curLen int) (int, error) {
 		if !aggressive {
 			// after aggressive count packets, use a more modest
 			// padding schedule up to c.MaxPadding
-			plen = int(float64(c.maxPadding)*float64(plen)/255.0)
+			plen = int(c.maxPadding*uint64(plen)/255.0)
 		}
 	}
 
@@ -324,21 +311,17 @@ func (c *salsa20Enveloper) addPadding(buf []byte, curLen int) (int, error) {
 		plen = maxPadding
 	}
 
-	return applyPadding(buf[curLen:], plen)
-}
-
-func (c *salsa20Enveloper) readPaddingSize(p []byte) (int, error) {
-	// the final byte of the packet indicates the number of padding bytes
-	// including the final byte (there is always at least one and at most
-	// 255
-	padding := int(p[len(p)-1])
-	if padding >= len(p) || padding <= 0 {
-		return 0, fmt.Errorf("invalid oquic padding marker: %d (len=%d)", padding, len(p))
+	// apply padding
+	marker := byte(plen)
+	for i := 0; i < plen; i++ {
+		buf[curLen+i] = marker
 	}
-	return padding, nil
+
+	return plen, nil
 }
 
-
+// DecodesAsDecoy tests whether a packet decodes as a decoy packet
+// with the given configuration.
 func DecodesAsDecoy(p []byte, config *OQuicConfig) bool {
 	var key [32]byte
 	copy(key[:], config.Key)
@@ -346,8 +329,8 @@ func DecodesAsDecoy(p []byte, config *OQuicConfig) bool {
 }
 
 func decodesAsDecoy(p []byte, nonceSize int, key *[salsaKeySize]byte) bool {
-	buf := getPacketBuffer()
-	defer releasePacketBuffer(buf)
+	buf := packetBuffers.Get()
+	defer packetBuffers.Put(buf)
 
 	salsa20.XORKeyStream(buf, p[nonceSize:], p[:nonceSize], key)
 	return isDecoy(buf)
@@ -359,21 +342,6 @@ func isDecoy(p []byte) bool {
 	// set to 0 is not a quic packet, and is considered
 	// a decoy.
 	return p[0]&fixedBitMask == byte(0)
-}
-
-func applyPadding(buf []byte, paddingLen int) (int, error) {
-	if paddingLen <= 0 || paddingLen > 255 {
-		return 0, fmt.Errorf("invalid oquic padding length: %d", paddingLen)
-	}
-	if paddingLen > len(buf) {
-		return 0, fmt.Errorf("insufficient buffer for oquic padding: %d (len=%d)", paddingLen, len(buf))
-	}
-	marker := byte(paddingLen)
-	for i := 0; i < paddingLen; i++ {
-		buf[i] = marker
-	}
-
-	return paddingLen, nil
 }
 
 // MakeHighEntropyDecoy creates a decoy packet of the 
