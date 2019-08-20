@@ -16,16 +16,18 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// a QuicDialFN is a function that may be used to establish a new QUIC Session
-type QuicDialFN func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
+// a QuicDialFn is a function that may be used to establish a new QUIC Session
+type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
+type UDPDialFn func(addr string) (net.PacketConn, *net.UDPAddr, error)
 
 const (
 	maxPendingStreamRequests = 1024
 )
 
 var (
-	defaultQuicDial  QuicDialFN = DialWithNetx
-	DialWithoutNetx  QuicDialFN = quic.DialAddrContext
+	DialWithNetx     QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
+	DialWithoutNetx  QuicDialFn = quic.DialAddrContext
+	defaultQuicDial  QuicDialFn = DialWithNetx
 	streamRequestCap atomic.Value
 )
 
@@ -43,35 +45,47 @@ func resetStreamRequestCap(n int64) {
 
 type wrappedSession struct {
 	quic.Session
-	udpConn *net.UDPConn
+	conn net.PacketConn
 }
 
 func (w wrappedSession) Close() error {
 	err := w.Session.Close()
-	err2 := w.udpConn.Close()
+	err2 := w.conn.Close()
 	if err == nil {
 		err = err2
 	}
 	return err
 }
 
-// QuicDialFN using netx swapped functions
-func DialWithNetx(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
+// Creates a new QuicDialFn that uses the UDPDialFn given to
+// create the underlying net.PacketConn
+func newDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
+	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
+		udpConn, udpAddr, err := dial(addr)
+		if err != nil {
+			return nil, err
+		}
+		ses, err := quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+		if err != nil {
+			udpConn.Close()
+			return nil, err
+		}
+		return wrappedSession{ses, udpConn}, nil
+	}
+}
+
+// DialUDPNetx is a UDPDialFn that resolves addresses and obtains
+// the net.PacketConn using the netx package.
+func DialUDPNetx(addr string) (net.PacketConn, *net.UDPAddr, error) {
 	udpAddr, err := netx.ResolveUDPAddr("udp", addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	udpConn, err := netx.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	ses, err := quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
-	if err != nil {
-		udpConn.Close()
-		return nil, err
-	}
-
-	return wrappedSession{ses, udpConn}, nil
+	return udpConn, udpAddr, nil
 }
 
 // NewClient returns a client that creates multiplexed
@@ -79,11 +93,11 @@ func DialWithNetx(ctx context.Context, addr string, tlsConf *tls.Config, config 
 // the provided configuration.
 //
 // The Session is created using the
-// QuickDialFN given, but is not established until
+// QuicDialFn given, but is not established until
 // the first call to Dial(), DialContext() or Connect()
 //
 // if dial is nil, the default quic dialer is used
-func NewClient(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFN) *Client {
+func NewClient(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFn) *Client {
 	return NewClientWithPinnedCert(addr, tlsConf, config, dial, nil)
 }
 
@@ -97,7 +111,7 @@ func NewClient(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFN
 // If a nil certificate is given, the check is not performed and
 // any valid certificate according the tls.Config given is accepted
 // (equivalent to NewClient behavior)
-func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFN, cert *x509.Certificate) *Client {
+func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, dial QuicDialFn, cert *x509.Certificate) *Client {
 	if dial == nil {
 		dial = defaultQuicDial
 	}
@@ -121,7 +135,7 @@ type Client struct {
 	pinnedCert   *x509.Certificate
 	config       *Config
 	dialOnce     sync.Once
-	dial         QuicDialFN
+	dial         QuicDialFn
 	mx           sync.Mutex
 }
 
