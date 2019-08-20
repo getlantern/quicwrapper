@@ -8,29 +8,28 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/oxtoacart/bpool"
 	quic "github.com/lucas-clemente/quic-go"
+	"github.com/oxtoacart/bpool"
 	"golang.org/x/crypto/salsa20"
 )
 
 const (
-	CipherXSalsa20        = "XSALSA20"
-	CipherSalsa20         = "SALSA20"
+	CipherXSalsa20 = "XSALSA20"
+	CipherSalsa20  = "SALSA20"
 
-	maxRcvSize      = 1452       // what quic impl believes it could receive
-	maxPacketSize   = 1252       // max quic sends to achieve 1280 total (ipv6 min mtu)
-	minInitialSize  = 1200       // spec minimum size for initial handshake packet
-	fixedBitMask    = byte(0x40) // 2nd bit of packet
-	salsaKeySize    = 32         // 32 bytes / 256 bits
-	maxBuffers      = 64
+	maxRcvSize     = 1452       // what quic impl believes it could receive
+	maxPacketSize  = 1252       // max quic sends to achieve 1280 total (ipv6 min mtu)
+	minInitialSize = 1200       // spec minimum size for initial handshake packet
+	fixedBitMask   = byte(0x40) // 2nd bit of packet
+	salsaKeySize   = 32         // 32 bytes / 256 bits
+	maxBuffers     = 64
 )
 
-var packetBuffers = bpool.NewBytePool(maxBuffers,maxRcvSize)
-
+var packetBuffers = bpool.NewBytePool(maxBuffers, maxRcvSize)
 
 func DefaultOQuicConfig(key []byte) *OQuicConfig {
 	return &OQuicConfig{
-		Key: key,
+		Key:               key,
 		AggressivePadding: 32,
 		MaxPaddingHint:    32,
 		MinPadded:         128,
@@ -39,11 +38,11 @@ func DefaultOQuicConfig(key []byte) *OQuicConfig {
 }
 
 type OQuicConfig struct {
-	Key               []byte   // Salsa 256 bit (32 byte) key
-	AggressivePadding int64    // if non-zero, enable large padding for this number of initial packets
-	MaxPaddingHint    uint8    // if non-zero, use padding, but limit to this maximum after agressive phase where appropriate
-	MinPadded         int      // if non-zero, do not pad packets under this size
-	Cipher            string   // default: Salsa20
+	Key               []byte // Salsa 256 bit (32 byte) key
+	AggressivePadding int64  // if non-zero, enable large padding for this number of initial packets
+	MaxPaddingHint    uint8  // if non-zero, use padding, but limit to this maximum after agressive phase where appropriate
+	MinPadded         int    // if non-zero, do not pad packets under this size
+	Cipher            string // default: Salsa20
 }
 
 func (c *OQuicConfig) validate() error {
@@ -93,12 +92,11 @@ func NewOQuicDialerWithUDPDialer(dial UDPDialFn, config *OQuicConfig) (QuicDialF
 		if err != nil {
 			return nil, nil, err
 		}
-		conn, err :=  NewSalsa20Enveloper(pconn, config)
+		conn, err := NewSalsa20Enveloper(pconn, config)
 		return conn, udpAddr, err
 	}
 	return newDialerWithUDPDialer(dialSealed), nil
 }
-
 
 type quicListenerCloser struct {
 	net.Listener
@@ -141,13 +139,12 @@ func ListenAddrOQuic(addr string, tlsConf *tls.Config, config *quic.Config, oqCo
 type salsa20Enveloper struct {
 	net.PacketConn
 	key           [salsaKeySize]byte
-	nonceSize     int 
+	nonceSize     int
 	aggressive    int64 // remaining packets with aggressive padding
 	minPadded     int
 	maxPadding    uint64
 	dataBytes     uint64
 	overheadBytes uint64
-
 }
 
 // NewSalsa20Enveloper creates a new net.PacketConn that
@@ -237,7 +234,7 @@ func (c *salsa20Enveloper) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return len(p), nil
 }
 
-// WriteDecoy writes an OQUIC 'decoy' packet to the 
+// WriteDecoy writes an OQUIC 'decoy' packet to the
 // underlying PacketConn.
 //
 // A Decoy's bytes are included verbatim in the packet,
@@ -266,7 +263,7 @@ func (c *salsa20Enveloper) Close() error {
 	return c.PacketConn.Close()
 }
 
-// EnvelopeSize indicates the minimum space that must be 
+// EnvelopeSize indicates the minimum space that must be
 // reserved for use by the obfuscation layer.
 func (c *salsa20Enveloper) EnvelopeSize() uint64 {
 	return uint64(c.nonceSize + 1) // nonce + padding marker
@@ -277,7 +274,7 @@ func (c *salsa20Enveloper) addPadding(buf []byte, curLen int) (int, error) {
 	maxPadding := maxPacketSize - curLen
 	aggressive := (atomic.LoadInt64(&c.aggressive) > 0 && atomic.AddInt64(&c.aggressive, -1) > 0)
 
-	if !aggressive && (curLen - c.nonceSize) < c.minPadded {
+	if !aggressive && (curLen-c.nonceSize) < c.minPadded {
 		plen = 1
 	} else if curLen >= minInitialSize && (aggressive || c.maxPadding > 1) {
 		// always pad anything 1200+ up to the max
@@ -300,7 +297,7 @@ func (c *salsa20Enveloper) addPadding(buf []byte, curLen int) (int, error) {
 		if !aggressive {
 			// after aggressive count packets, use a more modest
 			// padding schedule up to c.MaxPadding
-			plen = int(c.maxPadding*uint64(plen)/255.0)
+			plen = int(c.maxPadding * uint64(plen) / 255.0)
 		}
 	}
 
@@ -344,7 +341,7 @@ func isDecoy(p []byte) bool {
 	return p[0]&fixedBitMask == byte(0)
 }
 
-// MakeHighEntropyDecoy creates a decoy packet of the 
+// MakeHighEntropyDecoy creates a decoy packet of the
 // indicated size.  The packet is run through
 // the same obfuscation as a normal packet and is thus
 // 'high entropy' (appears encrypted or compressed)
