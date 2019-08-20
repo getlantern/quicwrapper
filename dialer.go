@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	DialWithNetx     QuicDialFn = NewDialerWithUDPDialer(DialUDPNetx)
+	DialWithNetx     QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
 	DialWithoutNetx  QuicDialFn = quic.DialAddrContext
 	defaultQuicDial  QuicDialFn = DialWithNetx
 	streamRequestCap atomic.Value
@@ -57,9 +57,9 @@ func (w wrappedSession) Close() error {
 	return err
 }
 
-// Creates a new QuicDialFn that uses teh UDPDialFn given to
+// Creates a new QuicDialFn that uses the UDPDialFn given to
 // create the underlying net.PacketConn
-func NewDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
+func newDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
 	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
 		udpConn, udpAddr, err := dial(addr)
 		if err != nil {
@@ -93,7 +93,7 @@ func DialUDPNetx(addr string) (net.PacketConn, *net.UDPAddr, error) {
 // the provided configuration.
 //
 // The Session is created using the
-// QuickDialFn given, but is not established until
+// QuicDialFn given, but is not established until
 // the first call to Dial(), DialContext() or Connect()
 //
 // if dial is nil, the default quic dialer is used

@@ -1,6 +1,7 @@
 package quicwrapper
 
 import (
+	"encoding/base64"
 	"crypto/rand"
 	"crypto/tls"
 	"math"
@@ -18,11 +19,7 @@ func createOQuicKey() *[32]byte {
 }
 
 func TestEchoOQuic(t *testing.T) {
-	config := &OQuicConfig{
-		Key:     createOQuicKey()[:],
-		Padding: true,
-	}
-
+	config := DefaultOQuicConfig(createOQuicKey()[:])
 	mcount := 512
 	mean := 1024.0
 	s := 384.0
@@ -43,7 +40,10 @@ func TestEchoOQuic(t *testing.T) {
 	assert.NoError(t, err)
 	defer l.Close()
 
-	odial := NewOQuicDialer(config)
+	odial, err := NewOQuicDialer(config)
+	if !assert.NoError(t, err) {
+		return
+	}
 	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, odial)
 	defer dialer.Close()
 
@@ -88,14 +88,19 @@ func sampleEntropy(buf []byte) float64 {
 
 func TestHighEntropyDecoy(t *testing.T) {
 	key := createOQuicKey()
-	config := &OQuicConfig{
-		Key: key[:],
-	}
+	config := DefaultOQuicConfig(key[:])
 
 	for i := 0; i < 250; i++ {
 		m := MakeHighEntropyDecoy(1024, config)
 		ent := sampleEntropy(m)
-		assert.True(t, ent > 7.5, "high entroy decoy had entropy %f > 7.5 (round %d)", ent, i)
-		assert.True(t, decodesAsDecoy(m, 8, key), "MakeHighEntropyDecoy didn't decode as decoy...")
+		assert.True(t, ent >= 7.5, "high entroy decoy had entropy %f < 7.5 (round %d)", ent, i)
+		assert.True(t, DecodesAsDecoy(m, config), "MakeHighEntropyDecoy didn't decode as decoy...")
 	}
+}
+
+func TestLowEntropyDecoy(t *testing.T) {
+	key, _ := base64.StdEncoding.DecodeString("RSmN4eFvcYhys9JiTTtcj6Y9FzT3b/F48ecwmYe4Cp8=")
+	config := DefaultOQuicConfig(key[:])
+
+	assert.True(t, DecodesAsDecoy([]byte("I like cheese"), config))
 }
