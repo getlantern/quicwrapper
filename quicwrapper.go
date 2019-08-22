@@ -60,6 +60,10 @@ func (c *Conn) Read(b []byte) (int, error) {
 		if ok && serr.Canceled() {
 			err = io.EOF
 		}
+		// treat peer going away as EOF
+		if isPeerGoingAway(err) {
+			err = io.EOF
+		}
 	}
 	return n, err
 }
@@ -71,6 +75,10 @@ func (c *Conn) Write(b []byte) (int, error) {
 		// treat "stop sending" as EOF
 		serr, ok := err.(quic.StreamError)
 		if ok && serr.Canceled() {
+			err = io.EOF
+		}
+		// treat peer going away as EOF
+		if isPeerGoingAway(err) {
 			err = io.EOF
 		}
 	}
