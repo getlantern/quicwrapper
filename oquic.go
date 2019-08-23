@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/oxtoacart/bpool"
@@ -137,14 +138,16 @@ func ListenAddrOQuic(addr string, tlsConf *tls.Config, config *quic.Config, oqCo
 }
 
 type salsa20Enveloper struct {
-	net.PacketConn
-	key           [salsaKeySize]byte
-	nonceSize     int
+	// atomics
 	aggressive    int64 // remaining packets with aggressive padding
-	minPadded     int
-	maxPadding    uint64
 	dataBytes     uint64
 	overheadBytes uint64
+
+	conn       net.PacketConn
+	key        [salsaKeySize]byte
+	nonceSize  int
+	minPadded  int
+	maxPadding uint64
 }
 
 // NewSalsa20Enveloper creates a new net.PacketConn that
@@ -155,7 +158,7 @@ func NewSalsa20Enveloper(conn net.PacketConn, config *OQuicConfig) (*salsa20Enve
 		return nil, err
 	}
 	c := &salsa20Enveloper{
-		PacketConn: conn,
+		conn:       conn,
 		maxPadding: uint64(config.MaxPaddingHint),
 		aggressive: config.AggressivePadding,
 		minPadded:  config.MinPadded,
@@ -172,7 +175,7 @@ func (c *salsa20Enveloper) ReadFrom(p []byte) (int, net.Addr, error) {
 	defer packetBuffers.Put(buf)
 
 	for {
-		n, addr, err := c.PacketConn.ReadFrom(buf)
+		n, addr, err := c.conn.ReadFrom(buf)
 		if err != nil || n == 0 {
 			return 0, addr, err
 		}
@@ -225,7 +228,7 @@ func (c *salsa20Enveloper) WriteTo(p []byte, addr net.Addr) (int, error) {
 
 	ebuf := buf[c.nonceSize:plen]
 	salsa20.XORKeyStream(ebuf, ebuf, buf[:c.nonceSize], &c.key)
-	_, err = c.PacketConn.WriteTo(buf[:plen], addr)
+	_, err = c.conn.WriteTo(buf[:plen], addr)
 	if err != nil {
 		return 0, err
 	}
@@ -250,7 +253,7 @@ func (c *salsa20Enveloper) WriteDecoyTo(p []byte, addr net.Addr) (int, error) {
 	if !decodesAsDecoy(p, c.nonceSize, &c.key) {
 		return 0, fmt.Errorf("invalid decoy: quic fixed bit is set after decoding.")
 	}
-	n, err := c.PacketConn.WriteTo(p, addr)
+	n, err := c.conn.WriteTo(p, addr)
 	atomic.AddUint64(&c.overheadBytes, uint64(n))
 	return n, err
 }
@@ -260,7 +263,27 @@ func (c *salsa20Enveloper) Close() error {
 	oh := atomic.LoadUint64(&c.overheadBytes)
 	qb := atomic.LoadUint64(&c.dataBytes)
 	log.Debugf("OQuic connection overhead %f%% (%d/%d)", 100*float64(oh)/float64(qb), oh, qb)
-	return c.PacketConn.Close()
+	return c.conn.Close()
+}
+
+// overrides net.PacketConn.LocalAddr
+func (c *salsa20Enveloper) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
+}
+
+// overrides net.PacketConn.SetDeadline
+func (c *salsa20Enveloper) SetDeadline(t time.Time) error {
+	return c.conn.SetDeadline(t)
+}
+
+// overrides net.PacketConn.SetReadDeadline
+func (c *salsa20Enveloper) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+// overrides net.PacketConn.SetWriteDeadline
+func (c *salsa20Enveloper) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
 }
 
 // EnvelopeSize indicates the minimum space that must be
