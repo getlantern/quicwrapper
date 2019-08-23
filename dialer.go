@@ -128,15 +128,13 @@ func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, d
 }
 
 type Client struct {
-	session      quic.Session
-	handshakeErr error
-	address      string
-	tlsConf      *tls.Config
-	pinnedCert   *x509.Certificate
-	config       *Config
-	dialOnce     sync.Once
-	dial         QuicDialFn
-	mx           sync.Mutex
+	session    quic.Session
+	muSession  sync.Mutex
+	address    string
+	tlsConf    *tls.Config
+	pinnedCert *x509.Certificate
+	config     *Config
+	dial       QuicDialFn
 }
 
 // DialContext creates a new multiplexed QUIC connection to the
@@ -169,18 +167,23 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 	ops.Go(func() {
 		defer rcap.Release(1)
 		defer close(done)
-		var err1 error
-		if err1 = c.Connect(ctx); err1 != nil {
+		session, err1 := c.getOrCreateSession(ctx)
+		if err1 != nil {
 			err = fmt.Errorf("connecting session: %v", err1)
 			return
 		}
 
-		stream, err1 := c.session.OpenStreamSync()
+		stream, err1 := session.OpenStreamSync()
 		if err1 != nil {
+			// OpenStreamSync is guaranteed to return net.Error
+			if !err1.(net.Error).Temporary() {
+				// start over again when seeing unrecoverable error.
+				c.clearSession(err1.Error())
+			}
 			err = fmt.Errorf("establishing stream: %v", err1)
 			return
 		}
-		conn = newConn(stream, c.session, c.session, nil)
+		conn = newConn(stream, session, session, nil)
 	})
 
 	select {
@@ -206,49 +209,44 @@ func (c *Client) Dial() (*Conn, error) {
 }
 
 // Connect requests immediate handshaking regardless of
-// whether any specific Dial has been initiated.
-// It is called lazily on the first Dial if not
-// otherwise called.
+// whether any specific Dial has been initiated. It is
+// called lazily on the first Dial if not otherwise
+// called.
 //
 // This can serve to pre-establish a multiplexed
 // session, but will also initiate idle timeout
 // tracking, keepalives etc. Returns any error
 // encountered during handshake.
 //
-// This may safely be called concurrently
-// with Dial.  The handshake is performed exactly
-// once regardless of the number of calls, and
-// is guaranteed to be completed when the call
-// returns to any caller.
+// This may safely be called concurrently with Dial.
+// The handshake is guaranteed to be completed when the
+// call returns to any caller.
 func (c *Client) Connect(ctx context.Context) error {
-	c.dialOnce.Do(func() {
-		c.session, c.handshakeErr = c.dial(ctx, c.address, c.tlsConf, c.config)
-		if c.handshakeErr == nil && c.pinnedCert != nil {
-			c.handshakeErr = c.verifyPinnedCert()
-			if c.handshakeErr != nil {
-				c.session.Close()
-				c.session = nil
+	_, err := c.getOrCreateSession(ctx)
+	return err
+}
+
+func (c *Client) getOrCreateSession(ctx context.Context) (quic.Session, error) {
+	c.muSession.Lock()
+	defer c.muSession.Unlock()
+	if c.session == nil {
+		session, err := c.dial(ctx, c.address, c.tlsConf, c.config)
+		if err != nil {
+			return nil, err
+		}
+		if c.pinnedCert != nil {
+			if err = c.verifyPinnedCert(session); err != nil {
+				session.Close()
+				return nil, err
 			}
 		}
-	})
-	if c.handshakeErr != nil {
-		return fmt.Errorf("handshake error connecting to %s: %v", c.address, c.handshakeErr)
+		c.session = session
 	}
-	return nil
+	return c.session, nil
 }
 
-// closes the session established by this client
-// (and all multiplexed connections)
-func (c *Client) Close() error {
-	if c.session != nil {
-		log.Debugf("Closing client quic session.")
-		return c.session.Close()
-	}
-	return nil
-}
-
-func (c *Client) verifyPinnedCert() error {
-	certs := c.session.ConnectionState().PeerCertificates
+func (c *Client) verifyPinnedCert(session quic.Session) error {
+	certs := session.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
 		return fmt.Errorf("Server did not present any certificates!")
 	}
@@ -270,4 +268,22 @@ func (c *Client) verifyPinnedCert() error {
 		return fmt.Errorf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
 	}
 	return nil
+}
+
+// closes the session established by this client
+// (and all multiplexed connections)
+func (c *Client) Close() error {
+	c.clearSession("closing client")
+	return nil
+}
+
+func (c *Client) clearSession(reason string) {
+	c.muSession.Lock()
+	s := c.session
+	c.session = nil
+	c.muSession.Unlock()
+	if s != nil {
+		log.Debugf("Closing client quic session because of '%v'", reason)
+		s.Close()
+	}
 }

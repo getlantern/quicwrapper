@@ -51,15 +51,15 @@ var _ net.Listener = &listener{}
 
 // wraps quic.Listener to create a net.Listener
 type listener struct {
+	numConnections        int64
+	numVirtualConnections int64
 	quicListener          quic.Listener
 	config                *Config
 	connections           chan net.Conn
 	acceptError           chan error
 	closedSignal          chan struct{}
 	closed                bool
-	numConnections        int64
-	numVirtualConnections int64
-	mx                    sync.Mutex
+	mxClosed              sync.Mutex
 }
 
 // implements net.Listener.Accept
@@ -86,8 +86,8 @@ func (l *listener) Accept() (net.Conn, error) {
 // note: it is still the responsibility of the caller
 // to call Close() on any Conn returned from Accept()
 func (l *listener) Close() error {
-	l.mx.Lock()
-	defer l.mx.Unlock()
+	l.mxClosed.Lock()
+	defer l.mxClosed.Unlock()
 	if l.closed {
 		return nil
 	}
