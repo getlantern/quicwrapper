@@ -171,7 +171,7 @@ func TestNetx(t *testing.T) {
 
 	normalDialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithoutNetx)
 	_, err = normalDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: lookup %s: no such host", server, fakehost))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: lookup %s: no such host", fakehost))
 	normalDialer.Close()
 
 	dialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithNetx)
@@ -244,11 +244,11 @@ func TestPinnedCert(t *testing.T) {
 	// no pinning -> validation failure
 	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: x509: certificate has expired or is not yet valid", server))
+	assert.EqualError(t, err, "connecting session: x509: certificate has expired or is not yet valid")
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: handshake error connecting to %s: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", server, goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
 
 	// correct cert
 	pinDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, goodCert)
