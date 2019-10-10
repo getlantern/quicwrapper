@@ -16,12 +16,12 @@ require (
 	github.com/getlantern/netx v0.0.0-20190110220209-9912de6f94fd
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f
 	github.com/go-stack/stack v1.8.0 // indirect
-	github.com/lucas-clemente/quic-go v0.0.0-00010101000000-000000000000
+	github.com/lucas-clemente/quic-go v0.7.1-0.20190207125157-7dc4be2ce994
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/stretchr/testify v1.3.0
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 )
 
-replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.7.1-0.20190606183433-1266fdfeb581
+replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.7.1-0.20190819144938-28e3ca4262e1
 
 replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls-deprecated v0.0.0-20190207043627-591c71538704
