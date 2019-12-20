@@ -18,6 +18,6 @@ require (
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 )
 
-replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.7.1-0.20190818104938-28e3ca4262e1
+replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.7.1-0.20191220184339-71b303d8aee9
 
 replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls-deprecated v0.0.0-20190207043627-591c71538704
