@@ -8,48 +8,28 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/getlantern/netx"
-	"github.com/getlantern/ops"
 	quic "github.com/lucas-clemente/quic-go"
-	"golang.org/x/sync/semaphore"
 )
 
 // a QuicDialFn is a function that may be used to establish a new QUIC Session
 type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
 type UDPDialFn func(addr string) (net.PacketConn, *net.UDPAddr, error)
 
-const (
-	maxPendingStreamRequests = 1024
-)
-
 var (
-	DialWithNetx     QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
-	DialWithoutNetx  QuicDialFn = quic.DialAddrContext
-	defaultQuicDial  QuicDialFn = DialWithNetx
-	streamRequestCap atomic.Value
+	DialWithNetx    QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
+	DialWithoutNetx QuicDialFn = quic.DialAddrContext
+	defaultQuicDial QuicDialFn = DialWithNetx
 )
-
-func init() {
-	resetStreamRequestCap(maxPendingStreamRequests)
-}
-
-func getStreamRequestCap() *semaphore.Weighted {
-	return streamRequestCap.Load().(*semaphore.Weighted)
-}
-
-func resetStreamRequestCap(n int64) {
-	streamRequestCap.Store(semaphore.NewWeighted(n))
-}
 
 type wrappedSession struct {
 	quic.Session
 	conn net.PacketConn
 }
 
-func (w wrappedSession) Close() error {
-	err := w.Session.Close()
+func (w wrappedSession) CloseWithError(code quic.ErrorCode, mesg string) error {
+	err := w.Session.CloseWithError(code, mesg)
 	err2 := w.conn.Close()
 	if err == nil {
 		err = err2
@@ -116,6 +96,8 @@ func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, d
 		dial = defaultQuicDial
 	}
 
+	tlsConf = defaultNextProtos(tlsConf)
+
 	return &Client{
 		session:    nil,
 		address:    addr,
@@ -143,63 +125,19 @@ type Client struct {
 // the operation is additionally governed by HandshakeTimeout
 // value given in the client Config.
 func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
-	// There is no direct support for Contexts
-	// during stream creation, so this is done
-	// on a goroutine.  To limit any extreme accumulation
-	// of stuck goroutines, a global maximum number of pending
-	// requests for streams is enforced using the
-	// streamRequestCap semaphore.  If the context given
-	// expires before the right to request can be acquired
-	// from the semaphore, an error is returned and no additional
-	// goroutines are started.
-	var conn *Conn
-	var err error
-
-	rcap := getStreamRequestCap()
-
-	err = rcap.Acquire(ctx, 1)
+	session, err := c.getOrCreateSession(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("maximum pending stream requests reached: %v", err)
+		return nil, fmt.Errorf("connecting session: %w", err)
 	}
-
-	done := make(chan struct{})
-
-	ops.Go(func() {
-		defer rcap.Release(1)
-		defer close(done)
-		session, err1 := c.getOrCreateSession(ctx)
-		if err1 != nil {
-			err = fmt.Errorf("connecting session: %v", err1)
-			return
+	stream, err := session.OpenStreamSync(ctx)
+	if err != nil {
+		if !err.(net.Error).Temporary() {
+			// start over again when seeing unrecoverable error.
+			c.clearSession(err.Error())
 		}
-
-		stream, err1 := session.OpenStreamSync()
-		if err1 != nil {
-			// OpenStreamSync is guaranteed to return net.Error
-			if !err1.(net.Error).Temporary() {
-				// start over again when seeing unrecoverable error.
-				c.clearSession(err1.Error())
-			}
-			err = fmt.Errorf("establishing stream: %v", err1)
-			return
-		}
-		conn = newConn(stream, session, session, nil)
-	})
-
-	select {
-	case <-done:
-		return conn, err
-	case <-ctx.Done():
-		// context expired
-		// cleanup when/if call returns
-		ops.Go(func() {
-			<-done
-			if conn != nil {
-				conn.Close()
-			}
-		})
-		return nil, fmt.Errorf("establishing stream: %v", ctx.Err())
+		return nil, fmt.Errorf("establishing stream: %w", err)
 	}
+	return newConn(stream, session, session, nil), nil
 }
 
 // Dial creates a new multiplexed QUIC connection to the
@@ -236,7 +174,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Session, error) {
 		}
 		if c.pinnedCert != nil {
 			if err = c.verifyPinnedCert(session); err != nil {
-				session.Close()
+				session.CloseWithError(0, "")
 				return nil, err
 			}
 		}
@@ -273,7 +211,7 @@ func (c *Client) verifyPinnedCert(session quic.Session) error {
 // closes the session established by this client
 // (and all multiplexed connections)
 func (c *Client) Close() error {
-	c.clearSession("closing client")
+	c.clearSession("client closed")
 	return nil
 }
 
@@ -283,7 +221,7 @@ func (c *Client) clearSession(reason string) {
 	c.session = nil
 	c.muSession.Unlock()
 	if s != nil {
-		log.Debugf("Closing client quic session because of '%v'", reason)
-		s.Close()
+		log.Debugf("Closing quic session (%v)", reason)
+		s.CloseWithError(0, "")
 	}
 }

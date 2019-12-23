@@ -1,6 +1,7 @@
 package quicwrapper
 
 import (
+	"context"
 	"crypto/tls"
 	"net"
 	"sync"
@@ -14,6 +15,7 @@ import (
 // ListenAddr creates a QUIC server listening on a given address.
 // The net.Conn instances returned by the net.Listener may be multiplexed connections.
 func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener, error) {
+	tlsConf = defaultNextProtos(tlsConf)
 	ql, err := quic.ListenAddr(addr, tlsConf, config)
 	if err != nil {
 		return nil, err
@@ -26,6 +28,7 @@ func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener,
 // The caller is responsible for closing the net.PacketConn after the listener has been
 // closed.
 func Listen(pconn net.PacketConn, tlsConf *tls.Config, config *Config) (net.Listener, error) {
+	tlsConf = defaultNextProtos(tlsConf)
 	ql, err := quic.Listen(pconn, tlsConf, config)
 	if err != nil {
 		return nil, err
@@ -58,8 +61,8 @@ type listener struct {
 	connections           chan net.Conn
 	acceptError           chan error
 	closedSignal          chan struct{}
-	closed                bool
-	mxClosed              sync.Mutex
+	closeErr              error
+	closeOnce             sync.Once
 }
 
 // implements net.Listener.Accept
@@ -86,17 +89,20 @@ func (l *listener) Accept() (net.Conn, error) {
 // note: it is still the responsibility of the caller
 // to call Close() on any Conn returned from Accept()
 func (l *listener) Close() error {
-	l.mxClosed.Lock()
-	defer l.mxClosed.Unlock()
-	if l.closed {
-		return nil
+	l.closeOnce.Do(func() {
+		close(l.closedSignal)
+		l.closeErr = l.quicListener.Close()
+	})
+	return l.closeErr
+}
+
+func (l *listener) isClosed() bool {
+	select {
+	case <-l.closedSignal:
+		return true
+	default:
+		return false
 	}
-	l.closed = true
-
-	close(l.closedSignal)
-	err := l.quicListener.Close()
-
-	return err
 }
 
 // implements net.Listener.Addr
@@ -121,15 +127,15 @@ func (l *listener) listen() {
 	}()
 
 	for {
-		session, err := l.quicListener.Accept()
+		session, err := l.quicListener.Accept(context.Background())
 		if err != nil {
-			if !l.closed {
+			if !l.isClosed() {
 				l.acceptError <- err
 			}
 			return
 		}
-		if l.closed {
-			session.Close()
+		if l.isClosed() {
+			session.CloseWithError(0, "")
 			return
 		} else {
 			atomic.AddInt64(&l.numConnections, 1)
@@ -150,16 +156,34 @@ func (l *listener) handleSession(session quic.Session) {
 	bw := NewEMABandwidthSampler(session)
 	bw.Start()
 
+	// track active session connections
+	active := make(map[quic.StreamID]Conn)
+	var mx sync.Mutex
+
 	defer func() {
 		bw.Stop()
-		session.Close()
+		session.CloseWithError(0, "")
+
+		// snapshot any non-closed connections, then nil out active list
+		// conns being closed will 'remove' themselves from the nil
+		// list, not the snapshot.
+		var snapshot map[quic.StreamID]Conn
+		mx.Lock()
+		snapshot = active
+		active = nil
+		mx.Unlock()
+
+		// immediately close any connections that are still active
+		for _, conn := range snapshot {
+			conn.Close()
+		}
 	}()
 
 	for {
-		stream, err := session.AcceptStream()
+		stream, err := session.AcceptStream(context.Background())
 		if err != nil {
 			if isPeerGoingAway(err) {
-				log.Tracef("Accepting stream: Peer going away.")
+				log.Tracef("Accepting stream: Peer going away (%v)", err)
 				return
 			} else {
 				log.Errorf("Accepting stream: %v", err)
@@ -167,20 +191,24 @@ func (l *listener) handleSession(session quic.Session) {
 			}
 		} else {
 			atomic.AddInt64(&l.numVirtualConnections, 1)
-			l.connections <- newConn(stream, session, bw, l.streamClosed)
+			conn := newConn(stream, session, bw, func(id quic.StreamID) {
+				atomic.AddInt64(&l.numVirtualConnections, -1)
+				// remove conn from active list
+				mx.Lock()
+				delete(active, id)
+				mx.Unlock()
+			})
+
+			l.connections <- conn
 		}
 	}
-}
-
-func (l *listener) streamClosed() {
-	atomic.AddInt64(&l.numVirtualConnections, -1)
 }
 
 func (l *listener) logStats() {
 	for {
 		select {
 		case <-time.After(5 * time.Second):
-			if !l.closed {
+			if !l.isClosed() {
 				log.Debugf("Connections: %d   Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
 			}
 		case <-l.closedSignal:
