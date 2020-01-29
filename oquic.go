@@ -262,7 +262,7 @@ func (c *salsa20Enveloper) WriteDecoyTo(p []byte, addr net.Addr) (int, error) {
 func (c *salsa20Enveloper) Close() error {
 	oh := atomic.LoadUint64(&c.overheadBytes)
 	qb := atomic.LoadUint64(&c.dataBytes)
-	log.Debugf("OQuic connection overhead %f%% (%d/%d)", 100*float64(oh)/float64(qb), oh, qb)
+	log.Tracef("OQuic connection overhead %f%% (%d/%d)", 100*float64(oh)/float64(qb), oh, qb)
 	return c.conn.Close()
 }
 

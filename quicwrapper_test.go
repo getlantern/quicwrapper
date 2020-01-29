@@ -244,7 +244,7 @@ func TestPinnedCert(t *testing.T) {
 	// no pinning -> validation failure
 	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.EqualError(t, err, "connecting session: x509: certificate has expired or is not yet valid")
+	assert.EqualError(t, err, "connecting session: CRYPTO_ERROR: x509: certificate has expired or is not yet valid")
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
@@ -348,55 +348,6 @@ func TestNetErrDeadline(t *testing.T) {
 		assert.Truef(t, netErr.Timeout(), "expected timeout error: %v", err)
 	}
 
-}
-
-func TestStreamRequestCap(t *testing.T) {
-
-	maxPendingTest := int64(2)
-	resetStreamRequestCap(maxPendingTest)
-	defer resetStreamRequestCap(maxPendingStreamRequests)
-
-	l, err := stallHandshakeServer(0)
-	if !assert.NoError(t, err) {
-		return
-	}
-	defer l.Close()
-
-	addr := l.LocalAddr().String()
-	dialer := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
-	timeout := 100 * time.Millisecond
-
-	// start maximum stream requests with no timeout
-	ctx1, cancelStalled := context.WithCancel(context.Background())
-	for i := int64(0); i < maxPendingTest; i++ {
-		go func() {
-			dialer.DialContext(ctx1)
-		}()
-	}
-	time.Sleep(250 * time.Millisecond)
-
-	// try to request another stream, should result in max streams
-	// requests in flight being exceeded after timeout
-	ctx2, _ := context.WithTimeout(context.Background(), timeout)
-	_, err = dialer.DialContext(ctx2)
-	assert.EqualError(t, err, "maximum pending stream requests reached: context deadline exceeded")
-
-	// a different client will also encounter this limit
-	dialer2 := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
-	ctx3, _ := context.WithTimeout(context.Background(), timeout)
-	_, err = dialer2.DialContext(ctx3)
-	assert.EqualError(t, err, "maximum pending stream requests reached: context deadline exceeded")
-
-	// clear out stalled dials
-	cancelStalled()
-	time.Sleep(250 * time.Millisecond)
-
-	// now a new client would be able to proceed
-	// (but still encounter a timeout)
-	dialer3 := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
-	ctx4, _ := context.WithTimeout(context.Background(), timeout)
-	_, err = dialer3.DialContext(ctx4)
-	assert.EqualError(t, err, "establishing stream: context deadline exceeded")
 }
 
 type RandBW struct {

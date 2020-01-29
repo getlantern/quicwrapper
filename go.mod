@@ -14,10 +14,7 @@ require (
 	github.com/lucas-clemente/quic-go v0.7.1-0.20190207125157-7dc4be2ce994
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
 	github.com/stretchr/testify v1.3.0
-	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
-	golang.org/x/sync v0.0.0-20190423024810-112230192c58
+	golang.org/x/crypto v0.0.0-20190829043050-9756ffdc2472
 )
 
-replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.7.1-0.20191220184339-71b303d8aee9
-
-replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls-deprecated v0.0.0-20190207043627-591c71538704
+replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.0.0-20200129225515-f0142adfc7dd

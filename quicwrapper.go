@@ -4,6 +4,7 @@
 package quicwrapper
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
@@ -21,26 +22,39 @@ var (
 )
 
 const (
-	peerGoingAway = "PeerGoingAway:"
+	// this is a very non-informative error string that quic-go
+	// gives back to indicate that something terminated with no explicit error
+	// e.g. this is returned when a session terminates "normally"
+	// (peer going away)
+	applicationNoError = "Application error 0x0"
+	closedConnError    = "use of closed network connection"
+	noActivity         = "No recent network activity"
+
+	// This the value represents HTTP/3 protocol (explicitly over draft-24).
+	// This is usually what browser will send (including the quic-go http3
+	// implementation, chrome canaries supporting draft-24 etc.)
+	AlpnH3 = "h3-24"
 )
 
 type Config = quic.Config
 
 var _ net.Conn = &Conn{}
 
+type streamClosedFn func(id quic.StreamID)
+
 // wraps quic.Stream and other info to implement net.Conn
 type Conn struct {
 	quic.Stream
 	session   quic.Session
 	bw        BandwidthEstimator
-	onClose   func()
+	onClose   streamClosedFn
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, onClose func()) *Conn {
+func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, onClose streamClosedFn) *Conn {
 	if onClose == nil {
-		onClose = func() {}
+		onClose = func(id quic.StreamID) {}
 	}
 
 	return &Conn{
@@ -99,7 +113,7 @@ func (c *Conn) close() error {
 	// to close both ends, this also forefully
 	// cancels any pending reads / in flight data.
 	c.Stream.CancelRead(0)
-	c.onClose()
+	c.onClose(c.StreamID())
 	return c.closeErr
 }
 
@@ -128,5 +142,25 @@ func isPeerGoingAway(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.HasPrefix(err.Error(), peerGoingAway)
+	str := err.Error()
+
+	if strings.Contains(str, closedConnError) ||
+		strings.Contains(str, applicationNoError) ||
+		strings.Contains(str, noActivity) {
+		return true
+	} else {
+		return false
+	}
+}
+
+// returns a tls.Config with NextProtos set to AlpnH3
+// if NextProtos is unset in the given tls.Config.
+func defaultNextProtos(tlsConf *tls.Config) *tls.Config {
+	if len(tlsConf.NextProtos) == 0 {
+		c := tlsConf.Clone()
+		c.NextProtos = []string{AlpnH3}
+		return c
+	} else {
+		return tlsConf
+	}
 }
