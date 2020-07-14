@@ -12,6 +12,7 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -244,7 +245,7 @@ func TestPinnedCert(t *testing.T) {
 	// no pinning -> validation failure
 	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.EqualError(t, err, "connecting session: CRYPTO_ERROR: x509: certificate has expired or is not yet valid")
+	assert.True(t, strings.HasPrefix(err.Error(), "connecting session: CRYPTO_ERROR: x509: certificate has expired or is not yet valid"))
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
