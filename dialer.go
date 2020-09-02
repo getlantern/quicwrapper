@@ -131,7 +131,7 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 	}
 	stream, err := session.OpenStreamSync(ctx)
 	if err != nil {
-		if !err.(net.Error).Temporary() {
+		if ne, ok := err.(net.Error); ok && !ne.Temporary() {
 			// start over again when seeing unrecoverable error.
 			c.clearSession(err.Error())
 		}
