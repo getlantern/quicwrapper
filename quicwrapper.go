@@ -30,10 +30,10 @@ const (
 	closedConnError    = "use of closed network connection"
 	noActivity         = "No recent network activity"
 
-	// This the value represents HTTP/3 protocol (explicitly over draft-24).
-	// This is usually what browser will send (including the quic-go http3
-	// implementation, chrome canaries supporting draft-24 etc.)
-	AlpnH3 = "h3-24"
+	// This the value represents HTTP/3 protocol (explicitly over quic draft-29).
+	// chromium has stated they are sticking to h3-29/0xff00001d as the
+	// alpn and quic wire version for H3 "until final RFCs are complete"
+	AlpnH3 = "h3-29"
 )
 
 type Config = quic.Config
