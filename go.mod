@@ -17,4 +17,4 @@ require (
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 )
 
-replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.0.0-20200928202259-321b05978e05
+replace github.com/lucas-clemente/quic-go => github.com/getlantern/quic-go v0.0.0-20201008152222-8b6eab03e303

@@ -53,6 +53,8 @@ github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f h1:wrYrQttPS8FHIRSl
 github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f/go.mod h1:D5ao98qkA6pxftxoqzibIBBrLSUli+kYnJqrgBf9cIA=
 github.com/getlantern/quic-go v0.0.0-20200928202259-321b05978e05 h1:IbQq9sC1CbKbrrdyo/9JKh5OI78AFWMPcYk1I+xe12I=
 github.com/getlantern/quic-go v0.0.0-20200928202259-321b05978e05/go.mod h1:yXttHsSNxQi8AWijC/vLP+OJczXqzHSOcJrM5ITUlCg=
+github.com/getlantern/quic-go v0.0.0-20201008152222-8b6eab03e303 h1:thOToSkVV13OBMb7GgJwa0OIPsUsX/5GE6FRck/x9wE=
+github.com/getlantern/quic-go v0.0.0-20201008152222-8b6eab03e303/go.mod h1:yXttHsSNxQi8AWijC/vLP+OJczXqzHSOcJrM5ITUlCg=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
 github.com/gliderlabs/ssh v0.1.1/go.mod h1:U7qILu1NlMHj9FlMhZLlkCdDnU1DBEAqr0aevW3Awn0=
 github.com/go-errors/errors v1.0.1/go.mod h1:f4zRHt4oKfwPJE5k8C9vpYG+aDHdBFUsgrm6/TyX73Q=
