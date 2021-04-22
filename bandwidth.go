@@ -8,7 +8,24 @@ import (
 	"github.com/getlantern/ema"
 	"github.com/getlantern/ops"
 	quic "github.com/lucas-clemente/quic-go"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	bandwidthHistogram = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "quic_bandwidth_hist",
+			Help:       "Bandwidth estimate histogram in bytes per second",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{},
+	)
+)
+
+func init() {
+	// Register the summary and the histogram with Prometheus's default registry.
+	prometheus.MustRegister(bandwidthHistogram)
+}
 
 type Bandwidth = quic.Bandwidth
 
@@ -84,5 +101,10 @@ func (bs *EMABandwidthSampler) Clear() {
 
 func (bs *EMABandwidthSampler) update() {
 	sample := bs.source.BandwidthEstimate()
+	// It's worth knowing that sample here does not mean that the proxy is doing that much
+	// just that the congestion control algro thinks at this moment in time it could go that
+	// fast. Histograms are useful here since proxy connections are not always busy, and so
+	// will give invalid-ish (for most human cases) BandwidthEstimate readings.
+	bandwidthHistogram.WithLabelValues().Observe(float64(sample))
 	bs.estimate.Update(float64(sample))
 }
