@@ -10,6 +10,17 @@ import (
 
 	"github.com/getlantern/ops"
 	quic "github.com/lucas-clemente/quic-go"
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+var (
+	connectionCounts = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "quic_connections",
+			Help: "Connections that the quic wrapper is currently tracking",
+		},
+		[]string{"type"},
+	)
 )
 
 // ListenAddr creates a QUIC server listening on a given address.
@@ -210,10 +221,14 @@ func (l *listener) logStats() {
 		case <-time.After(5 * time.Second):
 			if !l.isClosed() {
 				log.Debugf("Connections: %d   Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
+				connectionCounts.WithLabelValues("connections").Set(float64(atomic.LoadInt64(&l.numConnections)))
+				connectionCounts.WithLabelValues("virtual").Set(float64(atomic.LoadInt64(&l.numVirtualConnections)))
 			}
 		case <-l.closedSignal:
 			log.Debugf("Connections: %d   Virtual: %d", atomic.LoadInt64(&l.numConnections), atomic.LoadInt64(&l.numVirtualConnections))
 			log.Debug("Done logging stats.")
+			connectionCounts.WithLabelValues("connections").Set(0)
+			connectionCounts.WithLabelValues("virtual").Set(0)
 			return
 		}
 	}
