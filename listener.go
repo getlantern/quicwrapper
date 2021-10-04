@@ -26,7 +26,7 @@ var (
 // ListenAddr creates a QUIC server listening on a given address.
 // The net.Conn instances returned by the net.Listener may be multiplexed connections.
 func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener, error) {
-	tlsConf = defaultNextProtos(tlsConf)
+	tlsConf = defaultNextProtos(tlsConf, DefaultServerProtos)
 	ql, err := quic.ListenAddr(addr, tlsConf, config)
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func ListenAddr(addr string, tlsConf *tls.Config, config *Config) (net.Listener,
 // The caller is responsible for closing the net.PacketConn after the listener has been
 // closed.
 func Listen(pconn net.PacketConn, tlsConf *tls.Config, config *Config) (net.Listener, error) {
-	tlsConf = defaultNextProtos(tlsConf)
+	tlsConf = defaultNextProtos(tlsConf, DefaultServerProtos)
 	ql, err := quic.Listen(pconn, tlsConf, config)
 	if err != nil {
 		return nil, err

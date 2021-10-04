@@ -28,7 +28,7 @@ type wrappedSession struct {
 	conn net.PacketConn
 }
 
-func (w wrappedSession) CloseWithError(code quic.ErrorCode, mesg string) error {
+func (w wrappedSession) CloseWithError(code quic.ApplicationErrorCode, mesg string) error {
 	err := w.Session.CloseWithError(code, mesg)
 	err2 := w.conn.Close()
 	if err == nil {
@@ -96,7 +96,7 @@ func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, d
 		dial = defaultQuicDial
 	}
 
-	tlsConf = defaultNextProtos(tlsConf)
+	tlsConf = defaultNextProtos(tlsConf, DefaultClientProtos)
 
 	return &Client{
 		session:    nil,
@@ -184,7 +184,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Session, error) {
 }
 
 func (c *Client) verifyPinnedCert(session quic.Session) error {
-	certs := session.ConnectionState().PeerCertificates
+	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
 		return fmt.Errorf("Server did not present any certificates!")
 	}

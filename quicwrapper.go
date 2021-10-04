@@ -16,11 +16,6 @@ import (
 	quic "github.com/lucas-clemente/quic-go"
 )
 
-var (
-	log               = golog.LoggerFor("quicwrapper")
-	ErrListenerClosed = errors.New("listener closed")
-)
-
 const (
 	// this is a very non-informative error string that quic-go
 	// gives back to indicate that something terminated with no explicit error
@@ -28,12 +23,22 @@ const (
 	// (peer going away)
 	applicationNoError = "Application error 0x0"
 	closedConnError    = "use of closed network connection"
-	noActivity         = "No recent network activity"
+	noActivity         = "recent network activity"
 
-	// This the value represents HTTP/3 protocol (explicitly over quic draft-29).
-	// chromium has stated they are sticking to h3-29/0xff00001d as the
-	// alpn and quic wire version for H3 "until final RFCs are complete"
-	AlpnH3 = "h3-29"
+	// This the value represents HTTP/3 protocol (over quic v1).
+	AlpnH3 = "h3"
+	// This the value represents HTTP/3 protocol (over quic draft 29).
+	AlpnH3_29 = "h3-29"
+)
+
+var (
+	log               = golog.LoggerFor("quicwrapper")
+	ErrListenerClosed = errors.New("listener closed")
+
+	// client asks for this unless explicitly specified in tls.Config
+	DefaultClientProtos = []string{AlpnH3}
+	// server accepts these unless explicitly specified in tls.Config
+	DefaultServerProtos = []string{AlpnH3, AlpnH3_29}
 )
 
 type Config = quic.Config
@@ -70,8 +75,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Stream.Read(b)
 	if err != nil && err != io.EOF {
 		// remote end closed stream
-		serr, ok := err.(quic.StreamError)
-		if ok && serr.Canceled() {
+		if _, ok := err.(*quic.StreamError); ok {
 			err = io.EOF
 		}
 		// treat peer going away as EOF
@@ -87,8 +91,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 	n, err := c.Stream.Write(b)
 	if err != nil && err != io.EOF {
 		// treat "stop sending" as EOF
-		serr, ok := err.(quic.StreamError)
-		if ok && serr.Canceled() {
+		if _, ok := err.(*quic.StreamError); ok {
 			err = io.EOF
 		}
 		// treat peer going away as EOF
@@ -131,7 +134,7 @@ func (c *Conn) RemoteAddr() net.Addr {
 func (c *Conn) PeerCertificates() []*x509.Certificate {
 	// the ConnectionState interface the quic-go api is
 	// considered unstable, so this is not exposed directly.
-	return c.session.ConnectionState().PeerCertificates
+	return c.session.ConnectionState().TLS.PeerCertificates
 }
 
 func (c *Conn) BandwidthEstimate() Bandwidth {
@@ -155,10 +158,11 @@ func isPeerGoingAway(err error) bool {
 
 // returns a tls.Config with NextProtos set to AlpnH3
 // if NextProtos is unset in the given tls.Config.
-func defaultNextProtos(tlsConf *tls.Config) *tls.Config {
+func defaultNextProtos(tlsConf *tls.Config, defaultProtos []string) *tls.Config {
 	if len(tlsConf.NextProtos) == 0 {
 		c := tlsConf.Clone()
-		c.NextProtos = []string{AlpnH3}
+		c.NextProtos = make([]string, len(defaultProtos))
+		copy(c.NextProtos, defaultProtos)
 		return c
 	} else {
 		return tlsConf
