@@ -14,7 +14,7 @@ import (
 )
 
 // a QuicDialFn is a function that may be used to establish a new QUIC Session
-type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error)
+type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Connection, error)
 type UDPDialFn func(addr string) (net.PacketConn, *net.UDPAddr, error)
 
 var (
@@ -24,12 +24,12 @@ var (
 )
 
 type wrappedSession struct {
-	quic.Session
+	quic.Connection
 	conn net.PacketConn
 }
 
 func (w wrappedSession) CloseWithError(code quic.ApplicationErrorCode, mesg string) error {
-	err := w.Session.CloseWithError(code, mesg)
+	err := w.Connection.CloseWithError(code, mesg)
 	err2 := w.conn.Close()
 	if err == nil {
 		err = err2
@@ -40,7 +40,7 @@ func (w wrappedSession) CloseWithError(code quic.ApplicationErrorCode, mesg stri
 // Creates a new QuicDialFn that uses the UDPDialFn given to
 // create the underlying net.PacketConn
 func newDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
-	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Session, error) {
+	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Connection, error) {
 		udpConn, udpAddr, err := dial(addr)
 		if err != nil {
 			return nil, err
@@ -110,7 +110,7 @@ func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, d
 }
 
 type Client struct {
-	session    quic.Session
+	session    quic.Connection
 	muSession  sync.Mutex
 	address    string
 	tlsConf    *tls.Config
@@ -164,7 +164,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	return err
 }
 
-func (c *Client) getOrCreateSession(ctx context.Context) (quic.Session, error) {
+func (c *Client) getOrCreateSession(ctx context.Context) (quic.Connection, error) {
 	c.muSession.Lock()
 	defer c.muSession.Unlock()
 	if c.session == nil {
@@ -183,7 +183,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Session, error) {
 	return c.session, nil
 }
 
-func (c *Client) verifyPinnedCert(session quic.Session) error {
+func (c *Client) verifyPinnedCert(session quic.Connection) error {
 	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
 		return fmt.Errorf("Server did not present any certificates!")

@@ -50,14 +50,14 @@ type streamClosedFn func(id quic.StreamID)
 // wraps quic.Stream and other info to implement net.Conn
 type Conn struct {
 	quic.Stream
-	session   quic.Session
+	session   quic.Connection
 	bw        BandwidthEstimator
 	onClose   streamClosedFn
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(stream quic.Stream, session quic.Session, bw BandwidthEstimator, onClose streamClosedFn) *Conn {
+func newConn(stream quic.Stream, session quic.Connection, bw BandwidthEstimator, onClose streamClosedFn) *Conn {
 	if onClose == nil {
 		onClose = func(id quic.StreamID) {}
 	}

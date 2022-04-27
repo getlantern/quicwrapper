@@ -160,7 +160,7 @@ func (l *listener) listen() {
 	}
 }
 
-func (l *listener) handleSession(session quic.Session) {
+func (l *listener) handleSession(session quic.Connection) {
 
 	// keep a smoothed average of the bandwidth estimate
 	// for the session
