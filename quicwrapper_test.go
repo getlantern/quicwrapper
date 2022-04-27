@@ -272,7 +272,8 @@ func TestDialContextHandshakeStall(t *testing.T) {
 	var conn *Conn
 
 	go func() {
-		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 		c, err := dialer.DialContext(ctx)
 		conn = c
 		errchan <- err
@@ -287,7 +288,8 @@ func TestDialContextHandshakeStall(t *testing.T) {
 	}
 
 	time.Sleep(500 * time.Millisecond)
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	conn, err = dialer.DialContext(ctx)
 	assert.NotNil(t, conn, "should be able to dial again once network recovers")
 	assert.NoError(t, err)
