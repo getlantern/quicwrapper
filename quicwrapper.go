@@ -79,7 +79,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 			err = io.EOF
 		}
 		// treat peer going away as EOF
-		if isPeerGoingAway(err) {
+		if IsPeerGoingAway(err) {
 			err = io.EOF
 		}
 	}
@@ -95,7 +95,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 			err = io.EOF
 		}
 		// treat peer going away as EOF
-		if isPeerGoingAway(err) {
+		if IsPeerGoingAway(err) {
 			err = io.EOF
 		}
 	}
@@ -141,7 +141,7 @@ func (c *Conn) BandwidthEstimate() Bandwidth {
 	return c.bw.BandwidthEstimate()
 }
 
-func isPeerGoingAway(err error) bool {
+func IsPeerGoingAway(err error) bool {
 	if err == nil {
 		return false
 	}

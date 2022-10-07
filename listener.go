@@ -193,7 +193,7 @@ func (l *listener) handleSession(session quic.Connection) {
 	for {
 		stream, err := session.AcceptStream(context.Background())
 		if err != nil {
-			if isPeerGoingAway(err) {
+			if IsPeerGoingAway(err) {
 				log.Tracef("Accepting stream: Peer going away (%v)", err)
 				return
 			} else {
