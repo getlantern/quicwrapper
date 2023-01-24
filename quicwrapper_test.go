@@ -245,7 +245,7 @@ func TestPinnedCert(t *testing.T) {
 	// no pinning -> validation failure
 	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
 	_, err = noPinDialer.Dial()
-	assert.True(t, strings.Contains(err.Error(), "certificate has expired or is not yet valid"))
+	assert.True(t, strings.Contains(err.Error(), "invalid leaf certificate"))
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
