@@ -176,6 +176,22 @@ func TestNetx(t *testing.T) {
 
 	dialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithNetx)
 	defer dialer.Close()
+
+	netx.OverrideResolveIPs(func(host string) ([]net.IP, error) {
+		host, _, err := net.SplitHostPort(host)
+		if err != nil {
+			return nil, err
+		}
+		if host == fakehost {
+			updAddr, err := net.ResolveUDPAddr("udp", l.Addr().String())
+			if err != nil {
+				return nil, err
+			}
+			return []net.IP{updAddr.IP}, err
+		} else {
+			return nil, fmt.Errorf("unexpected address %s", host)
+		}
+	})
 	/*
 		netx.OverrideResolveUDP(func(network string, addr string) (*net.UDPAddr, error) {
 			host, _, err := net.SplitHostPort(addr)
