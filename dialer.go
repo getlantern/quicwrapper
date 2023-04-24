@@ -186,7 +186,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Connection, error
 func (c *Client) verifyPinnedCert(session quic.Connection) error {
 	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
-		return fmt.Errorf("Server did not present any certificates!")
+		return fmt.Errorf("server did not present any certificates")
 	}
 
 	serverCert := certs[0]
@@ -203,7 +203,7 @@ func (c *Client) verifyPinnedCert(session quic.Connection) error {
 			Bytes:   c.pinnedCert.Raw,
 		})
 
-		return fmt.Errorf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
+		return fmt.Errorf("server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
 	}
 	return nil
 }
