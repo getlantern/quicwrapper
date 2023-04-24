@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	mrand "math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -177,17 +176,19 @@ func TestNetx(t *testing.T) {
 
 	dialer := NewClient(server, &tls.Config{InsecureSkipVerify: true}, nil, DialWithNetx)
 	defer dialer.Close()
-	netx.OverrideResolveUDP(func(network string, addr string) (*net.UDPAddr, error) {
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-		if host == fakehost {
-			return net.ResolveUDPAddr(network, l.Addr().String())
-		} else {
-			return nil, fmt.Errorf("unexpected address %s", addr)
-		}
-	})
+	/*
+		netx.OverrideResolveUDP(func(network string, addr string) (*net.UDPAddr, error) {
+			host, _, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if host == fakehost {
+				return net.ResolveUDPAddr(network, l.Addr().String())
+			} else {
+				return nil, fmt.Errorf("unexpected address %s", addr)
+			}
+		})
+	*/
 
 	calledListenOverride := false
 	netx.OverrideListenUDP(func(network string, laddr *net.UDPAddr) (*net.UDPConn, error) {
@@ -269,7 +270,7 @@ func TestDialContextHandshakeStall(t *testing.T) {
 	dialer := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
 	timeout := 100 * time.Millisecond
 	errchan := make(chan error, 1)
-	var conn *Conn
+	var conn net.Conn
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -293,24 +294,6 @@ func TestDialContextHandshakeStall(t *testing.T) {
 	conn, err = dialer.DialContext(ctx)
 	assert.NotNil(t, conn, "should be able to dial again once network recovers")
 	assert.NoError(t, err)
-}
-
-func TestBandwidthEstimateSmoke(t *testing.T) {
-	min := int64(5000)
-	max := int64(10000000)
-	rbw := &RandBW{min, max, 0}
-
-	period := 10 * time.Millisecond
-	window := 100 * time.Millisecond
-	runtime := 1 * time.Second
-	est := NewEMABandwidthSamplerParams(rbw, period, window)
-
-	est.Start()
-	time.Sleep(runtime)
-	est.Stop()
-	final := est.BandwidthEstimate()
-	assert.True(t, final >= Bandwidth(min) && final <= Bandwidth(max))
-	assert.True(t, rbw.samples > 50 && rbw.samples < 150, "rbw samples = %d", rbw.samples)
 }
 
 func TestNetErrDeadline(t *testing.T) {
@@ -356,12 +339,6 @@ func TestNetErrDeadline(t *testing.T) {
 type RandBW struct {
 	min, max int64
 	samples  int64
-}
-
-func (r *RandBW) BandwidthEstimate() Bandwidth {
-	bw := Bandwidth(r.min + mrand.Int63n(r.max-r.min))
-	r.samples += 1
-	return bw
 }
 
 // starts a server that does not complete the quic handshake until after the

@@ -9,8 +9,8 @@ import (
 
 	"github.com/getlantern/golog"
 	"github.com/getlantern/quicwrapper"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/marten-seemann/webtransport-go"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/webtransport-go"
 )
 
 var (

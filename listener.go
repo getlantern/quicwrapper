@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/getlantern/ops"
-	quic "github.com/lucas-clemente/quic-go"
 	"github.com/prometheus/client_golang/prometheus"
+	quic "github.com/quic-go/quic-go"
 )
 
 var (
@@ -164,15 +164,15 @@ func (l *listener) handleSession(session quic.Connection) {
 
 	// keep a smoothed average of the bandwidth estimate
 	// for the session
-	bw := NewEMABandwidthSampler(session)
-	bw.Start()
+	//bw := NewEMABandwidthSampler(session)
+	//bw.Start()
 
 	// track active session connections
 	active := make(map[quic.StreamID]Conn)
 	var mx sync.Mutex
 
 	defer func() {
-		bw.Stop()
+		//bw.Stop()
 		session.CloseWithError(0, "")
 
 		// snapshot any non-closed connections, then nil out active list
@@ -202,7 +202,7 @@ func (l *listener) handleSession(session quic.Connection) {
 			}
 		} else {
 			atomic.AddInt64(&l.numVirtualConnections, 1)
-			conn := newConn(stream, session, bw, func(id quic.StreamID) {
+			conn := newConn(stream, session, func(id quic.StreamID) {
 				atomic.AddInt64(&l.numVirtualConnections, -1)
 				// remove conn from active list
 				mx.Lock()

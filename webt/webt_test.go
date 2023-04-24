@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/getlantern/quicwrapper"
-	"github.com/lucas-clemente/quic-go"
+	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
 )
 
