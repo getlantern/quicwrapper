@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/getlantern/golog"
-	quic "github.com/lucas-clemente/quic-go"
+	quic "github.com/quic-go/quic-go"
 )
 
 const (
@@ -51,13 +51,12 @@ type streamClosedFn func(id quic.StreamID)
 type Conn struct {
 	quic.Stream
 	session   quic.Connection
-	bw        BandwidthEstimator
 	onClose   streamClosedFn
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(stream quic.Stream, session quic.Connection, bw BandwidthEstimator, onClose streamClosedFn) *Conn {
+func newConn(stream quic.Stream, session quic.Connection, onClose streamClosedFn) net.Conn {
 	if onClose == nil {
 		onClose = func(id quic.StreamID) {}
 	}
@@ -65,7 +64,6 @@ func newConn(stream quic.Stream, session quic.Connection, bw BandwidthEstimator,
 	return &Conn{
 		Stream:  stream,
 		session: session,
-		bw:      bw,
 		onClose: onClose,
 	}
 }
@@ -135,10 +133,6 @@ func (c *Conn) PeerCertificates() []*x509.Certificate {
 	// the ConnectionState interface the quic-go api is
 	// considered unstable, so this is not exposed directly.
 	return c.session.ConnectionState().TLS.PeerCertificates
-}
-
-func (c *Conn) BandwidthEstimate() Bandwidth {
-	return c.bw.BandwidthEstimate()
 }
 
 func IsPeerGoingAway(err error) bool {
