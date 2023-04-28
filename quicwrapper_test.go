@@ -192,7 +192,7 @@ func TestPinnedCert(t *testing.T) {
 	// wrong cert
 	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
 
 	// correct cert
 	pinDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, goodCert)
