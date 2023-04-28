@@ -162,17 +162,11 @@ func (l *listener) listen() {
 
 func (l *listener) handleSession(session quic.Connection) {
 
-	// keep a smoothed average of the bandwidth estimate
-	// for the session
-	//bw := NewEMABandwidthSampler(session)
-	//bw.Start()
-
 	// track active session connections
 	active := make(map[quic.StreamID]Conn)
 	var mx sync.Mutex
 
 	defer func() {
-		//bw.Stop()
 		session.CloseWithError(0, "")
 
 		// snapshot any non-closed connections, then nil out active list
