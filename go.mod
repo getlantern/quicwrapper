@@ -3,7 +3,6 @@ module github.com/getlantern/quicwrapper
 go 1.19
 
 require (
-	github.com/getlantern/fdcount v0.0.0-20210503151800-5decd65b3731
 	github.com/getlantern/golog v0.0.0-20230206140254-6d0a2e0f79af
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
@@ -19,10 +18,10 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/getlantern/context v0.0.0-20220418194847-3d5e7a086201 // indirect
 	github.com/getlantern/errors v1.0.3 // indirect
+	github.com/getlantern/fdcount v0.0.0-20210503151800-5decd65b3731 // indirect
 	github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 // indirect
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
 	github.com/getlantern/iptool v0.0.0-20210721034953-519bf8ce0147 // indirect
-	github.com/getlantern/mtime v0.0.0-20200417132445-23682092d1f7 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
