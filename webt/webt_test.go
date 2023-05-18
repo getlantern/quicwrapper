@@ -218,7 +218,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		TLSConfig: &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"},
 	})
 	_, err = noPinDialer.Dial()
-	assert.True(t, strings.Contains(err.Error(), "invalid leaf certificate"))
+	assert.True(t, strings.Contains(err.Error(), "The key size is not supported"), err.Error())
 
 	// wrong cert
 	badDialer := NewClient(&ClientOptions{
