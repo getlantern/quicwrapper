@@ -3,7 +3,6 @@ module github.com/getlantern/quicwrapper
 go 1.19
 
 require (
-	github.com/getlantern/ema v0.0.0-20190620044903-5943d28f40e4
 	github.com/getlantern/golog v0.0.0-20230206140254-6d0a2e0f79af
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
