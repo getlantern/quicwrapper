@@ -382,7 +382,10 @@ func generateKeyPair() (tls.Certificate, error) {
 		return tls.Certificate{}, err
 	}
 	template := x509.Certificate{SerialNumber: big.NewInt(1)}
+	template.NotBefore = time.Now().Add(-1 * time.Hour)
+	template.NotAfter = time.Now().Add(1 * time.Hour)
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -390,5 +393,7 @@ func generateKeyPair() (tls.Certificate, error) {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	//tlsCert.Certificate.
+
 	return tlsCert, err
 }
