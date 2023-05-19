@@ -385,6 +385,7 @@ func generateKeyPair() (tls.Certificate, error) {
 	template.NotBefore = time.Now().Add(-1 * time.Hour)
 	template.NotAfter = time.Now().Add(1 * time.Hour)
 	template.PermittedDNSDomains = []string{"localhost"}
+	template.DNSNames = []string{"localhost"}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 
 	if err != nil {
