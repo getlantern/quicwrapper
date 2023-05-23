@@ -1,7 +1,6 @@
-package quicwrapper
+package webt
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -11,12 +10,19 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/getlantern/quicwrapper"
+	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
+)
+
+const (
+	testPath = "webtransport"
 )
 
 var tests [][]byte
@@ -32,7 +38,7 @@ func init() {
 	}
 }
 
-func dialAndEcho(t *testing.T, dialer *Client, data []byte) {
+func dialAndEcho(t *testing.T, dialer *client, data []byte) {
 	conn, err := dialer.Dial()
 	if !assert.NoError(t, err) {
 		return
@@ -59,12 +65,17 @@ func dialAndEcho(t *testing.T, dialer *Client, data []byte) {
 	assert.Equal(t, data, buf)
 }
 
-func TestEchoSeq(t *testing.T) {
+func TestWebtEchoSeq(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
-	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	options := &ClientOptions{
+		Addr:      l.Addr().String(),
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	dialer := NewClient(options)
 	defer dialer.Close()
 
 	for i := 0; i < 5250; i++ {
@@ -74,12 +85,17 @@ func TestEchoSeq(t *testing.T) {
 	}
 }
 
-func TestEchoPar1(t *testing.T) {
+func TestWebtEchoPar1(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
-	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	options := &ClientOptions{
+		Addr:      l.Addr().String(),
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	dialer := NewClient(options)
 	defer dialer.Close()
 
 	var wg sync.WaitGroup
@@ -95,7 +111,7 @@ func TestEchoPar1(t *testing.T) {
 	wg.Wait()
 }
 
-func TestEchoPar2(t *testing.T) {
+func TestWebtEchoPar2(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
@@ -105,7 +121,13 @@ func TestEchoPar2(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+
+			options := &ClientOptions{
+				Addr:      l.Addr().String(),
+				Path:      testPath,
+				TLSConfig: &tls.Config{InsecureSkipVerify: true},
+			}
+			dialer := NewClient(options)
 			defer dialer.Close()
 
 			for j := 0; j < 25; j++ {
@@ -118,7 +140,7 @@ func TestEchoPar2(t *testing.T) {
 	wg.Wait()
 }
 
-func TestEchoPar3(t *testing.T) {
+func TestWebtEchoPar3(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
@@ -128,7 +150,12 @@ func TestEchoPar3(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+			options := &ClientOptions{
+				Addr:      l.Addr().String(),
+				Path:      testPath,
+				TLSConfig: &tls.Config{InsecureSkipVerify: true},
+			}
+			dialer := NewClient(options)
 			defer dialer.Close()
 
 			var wg2 sync.WaitGroup
@@ -147,7 +174,7 @@ func TestEchoPar3(t *testing.T) {
 	wg.Wait()
 }
 
-func TestPinnedCert(t *testing.T) {
+func TestWebtPinnedCert(t *testing.T) {
 	keyPair, err := generateKeyPair()
 	if !assert.NoError(t, err) {
 		return
@@ -186,64 +213,87 @@ func TestPinnedCert(t *testing.T) {
 	server := l.Addr().String()
 
 	// no pinning -> validation failure
-	noPinDialer := NewClient(server, &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"}, nil, nil)
+	noPinDialer := NewClient(&ClientOptions{
+		Addr:      server,
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"},
+	})
 	_, err = noPinDialer.Dial()
-	assert.True(t, strings.Contains(err.Error(), "failed to verify certificate"), "expected 'failed to verify certificate', got %v", err)
+	if runtime.GOOS == "darwin" {
+		assert.ErrorContains(t, err, "using a broken key size")
+	} else {
+		assert.ErrorContains(t, err, "x509: certificate signed by unknown authority")
+	}
+
 	// wrong cert
-	badDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, badCert)
+	badDialer := NewClient(&ClientOptions{
+		Addr:       server,
+		Path:       testPath,
+		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		PinnedCert: badCert,
+	})
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
 
 	// correct cert
-	pinDialer := NewClientWithPinnedCert(server, &tls.Config{InsecureSkipVerify: true}, nil, nil, goodCert)
+	pinDialer := NewClient(&ClientOptions{
+		Addr:       server,
+		Path:       testPath,
+		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		PinnedCert: goodCert,
+	})
 	_, err = pinDialer.Dial()
 	assert.NoError(t, err)
 
 }
 
-func TestDialContextHandshakeStall(t *testing.T) {
-	l, err := stallHandshakeServer(500 * time.Millisecond)
+func TestWebtWrongPath(t *testing.T) {
+	keyPair, err := generateKeyPair()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	goodCert, err := x509.ParseCertificate(keyPair.Certificate[0])
+	if !assert.NoError(t, err) {
+		return
+	}
+	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}})
 	if !assert.NoError(t, err) {
 		return
 	}
 	defer l.Close()
 
-	addr := l.LocalAddr().String()
-	dialer := NewClient(addr, &tls.Config{InsecureSkipVerify: true}, nil, nil)
-	timeout := 100 * time.Millisecond
-	errchan := make(chan error, 1)
-	var conn net.Conn
+	server := l.Addr().String()
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		c, err := dialer.DialContext(ctx)
-		conn = c
-		errchan <- err
-	}()
-
-	select {
-	case err := <-errchan:
-		assert.Nil(t, conn)
-		assert.Contains(t, err.Error(), "deadline exceeded")
-	case <-time.After(2 * timeout):
-		t.Errorf("Dial did not fail within twice timeout.")
-	}
-
-	time.Sleep(500 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	conn, err = dialer.DialContext(ctx)
-	assert.NotNil(t, conn, "should be able to dial again once network recovers")
+	pinDialer := NewClient(&ClientOptions{
+		Addr:       server,
+		Path:       testPath,
+		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		PinnedCert: goodCert,
+	})
+	_, err = pinDialer.Dial()
 	assert.NoError(t, err)
+
+	wrongPath := NewClient(&ClientOptions{
+		Addr:       server,
+		Path:       "wrongpath",
+		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		PinnedCert: goodCert,
+	})
+	_, err = wrongPath.Dial()
+	assert.True(t, strings.Contains(err.Error(), "status 404"))
 }
 
-func TestNetErrDeadline(t *testing.T) {
+func TestWebtNetErrDeadline(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
-	dialer := NewClient(l.Addr().String(), &tls.Config{InsecureSkipVerify: true}, nil, nil)
+	dialer := NewClient(&ClientOptions{
+		Addr:      l.Addr().String(),
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+	})
 	defer dialer.Close()
 
 	conn, err := dialer.Dial()
@@ -275,35 +325,13 @@ func TestNetErrDeadline(t *testing.T) {
 	if ok {
 		assert.Truef(t, netErr.Timeout(), "expected timeout error: %v", err)
 	}
+	// clear deadlines
+	conn.SetWriteDeadline(time.Time{})
+	conn.SetReadDeadline(time.Time{})
 
 }
 
-type RandBW struct {
-	min, max int64
-	samples  int64
-}
-
-// starts a server that does not complete the quic handshake until after the
-// given duration.
-func stallHandshakeServer(d time.Duration) (*net.UDPConn, error) {
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		return nil, err
-	}
-	l, err := net.ListenUDP("udp", addr)
-	if d > 0 {
-		time.AfterFunc(d, func() {
-			tlsConf, err := generateTLSConfig()
-			if err != nil {
-				return
-			}
-			_, _ = Listen(l, tlsConf, nil)
-		})
-	}
-	return l, err
-}
-
-func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
+func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) {
 	if tlsConf == nil {
 		tc, err := generateTLSConfig()
 		if err != nil {
@@ -311,7 +339,13 @@ func echoServer(config *Config, tlsConf *tls.Config) (net.Listener, error) {
 		}
 		tlsConf = tc
 	}
-	l, err := ListenAddr("127.0.0.1:0", tlsConf, config)
+	options := &ListenOptions{
+		Addr:       "127.0.0.1:0",
+		Path:       testPath,
+		TLSConfig:  tlsConf,
+		QuicConfig: config,
+	}
+	l, err := ListenAddr(options)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +359,7 @@ func runEchoServer(l net.Listener) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			if err != ErrListenerClosed {
+			if err != quicwrapper.ErrListenerClosed {
 				log.Errorf("accepting connection: %v", err)
 			}
 			return
@@ -353,7 +387,12 @@ func generateKeyPair() (tls.Certificate, error) {
 		return tls.Certificate{}, err
 	}
 	template := x509.Certificate{SerialNumber: big.NewInt(1)}
+	template.NotBefore = time.Now().Add(-1 * time.Hour)
+	template.NotAfter = time.Now().Add(1 * time.Hour)
+	template.PermittedDNSDomains = []string{"localhost"}
+	template.DNSNames = []string{"localhost"}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -361,5 +400,7 @@ func generateKeyPair() (tls.Certificate, error) {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	//tlsCert.Certificate.
+
 	return tlsCert, err
 }

@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/getlantern/netx"
-	quic "github.com/lucas-clemente/quic-go"
+	quic "github.com/quic-go/quic-go"
 )
 
 // a QuicDialFn is a function that may be used to establish a new QUIC Session
@@ -124,7 +124,7 @@ type Client struct {
 // cancellation / timeout.  If initial handshaking is performed,
 // the operation is additionally governed by HandshakeTimeout
 // value given in the client Config.
-func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
+func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	session, err := c.getOrCreateSession(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting session: %w", err)
@@ -137,12 +137,12 @@ func (c *Client) DialContext(ctx context.Context) (*Conn, error) {
 		}
 		return nil, fmt.Errorf("establishing stream: %w", err)
 	}
-	return newConn(stream, session, session, nil), nil
+	return newConn(stream, session, nil), nil
 }
 
 // Dial creates a new multiplexed QUIC connection to the
 // server configured for the client.
-func (c *Client) Dial() (*Conn, error) {
+func (c *Client) Dial() (net.Conn, error) {
 	return c.DialContext(context.Background())
 }
 
@@ -186,7 +186,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Connection, error
 func (c *Client) verifyPinnedCert(session quic.Connection) error {
 	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
-		return fmt.Errorf("Server did not present any certificates!")
+		return fmt.Errorf("server did not present any certificates")
 	}
 
 	serverCert := certs[0]
@@ -203,7 +203,7 @@ func (c *Client) verifyPinnedCert(session quic.Connection) error {
 			Bytes:   c.pinnedCert.Raw,
 		})
 
-		return fmt.Errorf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
+		return fmt.Errorf("server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
 	}
 	return nil
 }
