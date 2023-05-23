@@ -218,7 +218,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		TLSConfig: &tls.Config{InsecureSkipVerify: false, ServerName: "localhost"},
 	})
 	_, err = noPinDialer.Dial()
-	assert.True(t, strings.Contains(err.Error(), "using a broken key size"), err.Error())
+	assert.True(t, strings.Contains(err.Error(), "using a broken key size"), fmt.Errorf("unexpected error dialing: %w", err))
 
 	// wrong cert
 	badDialer := NewClient(&ClientOptions{
