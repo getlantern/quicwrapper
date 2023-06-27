@@ -19,7 +19,7 @@ type UDPDialFn func(addr string) (net.PacketConn, *net.UDPAddr, error)
 
 var (
 	DialWithNetx    QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
-	DialWithoutNetx QuicDialFn = quic.DialAddrContext
+	DialWithoutNetx QuicDialFn = quic.DialAddr
 	defaultQuicDial QuicDialFn = DialWithNetx
 )
 
@@ -45,7 +45,7 @@ func newDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
 		if err != nil {
 			return nil, err
 		}
-		ses, err := quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+		ses, err := quic.Dial(ctx, udpConn, udpAddr, tlsConf, config)
 		if err != nil {
 			udpConn.Close()
 			return nil, err

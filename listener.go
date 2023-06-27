@@ -47,7 +47,7 @@ func Listen(pconn net.PacketConn, tlsConf *tls.Config, config *Config) (net.List
 	return listen(ql, tlsConf, config)
 }
 
-func listen(ql quic.Listener, tlsConf *tls.Config, config *Config) (net.Listener, error) {
+func listen(ql *quic.Listener, tlsConf *tls.Config, config *Config) (net.Listener, error) {
 	l := &listener{
 		quicListener: ql,
 		config:       config,
@@ -67,7 +67,7 @@ var _ net.Listener = &listener{}
 type listener struct {
 	numConnections        int64
 	numVirtualConnections int64
-	quicListener          quic.Listener
+	quicListener          *quic.Listener
 	config                *Config
 	connections           chan net.Conn
 	acceptError           chan error
