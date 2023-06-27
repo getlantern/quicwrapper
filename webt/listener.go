@@ -44,15 +44,13 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 		mux = http.NewServeMux()
 	}
 
-	h3 := http3.Server{
-		Handler:    mux,
-		Addr:       options.Addr,
-		TLSConfig:  options.TLSConfig,
-		QuicConfig: options.QuicConfig,
-	}
-
 	server := &webtransport.Server{
-		H3: h3,
+		H3: http3.Server{
+			Handler:    mux,
+			Addr:       options.Addr,
+			TLSConfig:  options.TLSConfig,
+			QuicConfig: options.QuicConfig,
+		},
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", options.Addr)
