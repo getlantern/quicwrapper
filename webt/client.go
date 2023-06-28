@@ -66,7 +66,7 @@ func (c *client) DialContext(ctx context.Context) (*conn, error) {
 		}
 		return nil, fmt.Errorf("establishing stream: %w", err)
 	}
-	return newConn(stream, session, res, func() {}), nil
+	return NewConn(stream, session, res, func() {}), nil
 }
 
 // Dial creates a new multiplexed WebTransport connection to the

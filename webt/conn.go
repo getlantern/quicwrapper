@@ -31,7 +31,8 @@ type conn struct {
 	closeErr  error
 }
 
-func newConn(stream webtransport.Stream, session *webtransport.Session, res *http.Response, onClose streamClosedFn) *conn {
+// NewConn creates a new net.Conn from a webtransport.Stream, session, and http.Response
+func NewConn(stream webtransport.Stream, session *webtransport.Session, res *http.Response, onClose streamClosedFn) *conn {
 	return &conn{
 		Stream:  stream,
 		session: session,

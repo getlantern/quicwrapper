@@ -174,7 +174,7 @@ func (l *listener) handleSession(session *webtransport.Session) {
 			}
 		} else {
 			atomic.AddInt64(&l.numVirtualConnections, 1)
-			conn := newConn(stream, session, nil, func() {
+			conn := NewConn(stream, session, nil, func() {
 				atomic.AddInt64(&l.numVirtualConnections, -1)
 			})
 			l.connections <- conn
