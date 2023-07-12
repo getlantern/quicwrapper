@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -53,7 +54,7 @@ func NewClient(config *ClientOptions) *client {
 // DialContext creates a webtransport connection to the
 // server configured in the client. The given Context governs
 // cancellation / timeout.
-func (c *client) DialContext(ctx context.Context) (*conn, error) {
+func (c *client) DialContext(ctx context.Context) (net.Conn, error) {
 	session, res, err := c.getOrCreateSession(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting session: %w", err)
@@ -71,7 +72,7 @@ func (c *client) DialContext(ctx context.Context) (*conn, error) {
 
 // Dial creates a new multiplexed WebTransport connection to the
 // server configured for the client.
-func (c *client) Dial() (*conn, error) {
+func (c *client) Dial() (net.Conn, error) {
 	return c.DialContext(context.Background())
 }
 
@@ -117,7 +118,7 @@ func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session,
 func (c *client) verifyPinnedCert(res *http.Response) error {
 	certs := res.TLS.PeerCertificates
 	if len(certs) == 0 {
-		return fmt.Errorf("Server did not present any certificates!")
+		return errors.New("server did not present any certificates")
 	}
 
 	serverCert := certs[0]
@@ -134,7 +135,7 @@ func (c *client) verifyPinnedCert(res *http.Response) error {
 			Bytes:   c.pinnedCert.Raw,
 		})
 
-		return fmt.Errorf("Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
+		return fmt.Errorf("server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", received, expected)
 	}
 	return nil
 }

@@ -165,7 +165,7 @@ func (l *listener) handleSession(session *webtransport.Session) {
 			if quicwrapper.IsPeerGoingAway(err) {
 				log.Tracef("Accepting stream: Peer going away (%v)", err)
 				return
-			} else if ce, ok := err.(*webtransport.ConnectionError); ok && ce.Remote == true {
+			} else if ce, ok := err.(*webtransport.ConnectionError); ok && ce.Remote {
 				log.Tracef("Accepting stream: webtransport.ConnectionError remote=%v message=%v", ce.Remote, ce.Message)
 				return
 			} else {
