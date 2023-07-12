@@ -7,7 +7,7 @@ require (
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
 	github.com/prometheus/client_golang v1.15.0
-	github.com/quic-go/quic-go v0.36.0
+	github.com/quic-go/quic-go v0.36.1
 	github.com/quic-go/webtransport-go v0.5.2
 	github.com/stretchr/testify v1.8.2
 )
