@@ -7,8 +7,8 @@ require (
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
 	github.com/prometheus/client_golang v1.15.0
-	github.com/quic-go/quic-go v0.36.1
-	github.com/quic-go/webtransport-go v0.5.2
+	github.com/quic-go/quic-go v0.38.0
+	github.com/quic-go/webtransport-go v0.5.3
 	github.com/stretchr/testify v1.8.2
 )
 
@@ -37,8 +37,7 @@ require (
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
-	github.com/quic-go/qtls-go1-19 v0.3.2 // indirect
-	github.com/quic-go/qtls-go1-20 v0.2.2 // indirect
+	github.com/quic-go/qtls-go1-20 v0.3.2 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	go.opentelemetry.io/otel v1.14.0 // indirect
 	go.opentelemetry.io/otel/trace v1.14.0 // indirect
