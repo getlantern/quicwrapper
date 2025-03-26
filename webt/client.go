@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
 	"github.com/quic-go/webtransport-go"
 )
 
@@ -37,10 +36,8 @@ type client struct {
 // NewClient returns a client that creates multiplexed WebTransport based sessions
 func NewClient(config *ClientOptions) *client {
 	dialer := &webtransport.Dialer{
-		RoundTripper: &http3.RoundTripper{
-			TLSClientConfig: config.TLSConfig,
-			QuicConfig:      config.QuicConfig,
-		},
+		TLSClientConfig: config.TLSConfig,
+		QUICConfig:      config.QuicConfig,
 	}
 
 	return &client{

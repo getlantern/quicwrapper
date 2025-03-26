@@ -343,7 +343,7 @@ func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) 
 		Addr:       "127.0.0.1:0",
 		Path:       testPath,
 		TLSConfig:  tlsConf,
-		QuicConfig: config,
+		QUICConfig: config,
 	}
 	l, err := ListenAddr(options)
 	if err != nil {
