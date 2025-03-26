@@ -32,7 +32,7 @@ type ListenOptions struct {
 	Addr       string
 	Path       string
 	TLSConfig  *tls.Config
-	QuicConfig *quic.Config
+	QUICConfig *quic.Config
 	Handler    *http.ServeMux
 }
 
@@ -49,7 +49,7 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 			Handler:    mux,
 			Addr:       options.Addr,
 			TLSConfig:  options.TLSConfig,
-			QuicConfig: options.QuicConfig,
+			QUICConfig: options.QUICConfig,
 		},
 	}
 
@@ -165,8 +165,8 @@ func (l *listener) handleSession(session *webtransport.Session) {
 			if quicwrapper.IsPeerGoingAway(err) {
 				log.Tracef("Accepting stream: Peer going away (%v)", err)
 				return
-			} else if ce, ok := err.(*webtransport.ConnectionError); ok && ce.Remote {
-				log.Tracef("Accepting stream: webtransport.ConnectionError remote=%v message=%v", ce.Remote, ce.Message)
+			} else if ce, ok := err.(*webtransport.SessionError); ok && ce.Remote {
+				log.Tracef("Accepting stream: webtransport.SessionError remote=%v message=%v", ce.Remote, ce.Message)
 				return
 			} else {
 				log.Errorf("Accepting stream: %v", err)

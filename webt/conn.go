@@ -56,7 +56,7 @@ func (c *conn) Read(b []byte) (int, error) {
 		if _, ok := err.(*webtransport.StreamError); ok {
 			err = io.EOF
 		}
-		if _, ok := err.(*webtransport.ConnectionError); ok {
+		if _, ok := err.(*webtransport.SessionError); ok {
 			err = io.EOF
 		}
 	}
@@ -78,7 +78,7 @@ func (c *conn) Write(b []byte) (int, error) {
 		if _, ok := err.(*webtransport.StreamError); ok {
 			err = io.EOF
 		}
-		if _, ok := err.(*webtransport.ConnectionError); ok {
+		if _, ok := err.(*webtransport.SessionError); ok {
 			err = io.EOF
 		}
 	}

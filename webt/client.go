@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
 	"github.com/quic-go/webtransport-go"
 )
 
@@ -37,10 +36,8 @@ type client struct {
 // NewClient returns a client that creates multiplexed WebTransport based sessions
 func NewClient(config *ClientOptions) *client {
 	dialer := &webtransport.Dialer{
-		RoundTripper: &http3.RoundTripper{
-			TLSClientConfig: config.TLSConfig,
-			QuicConfig:      config.QuicConfig,
-		},
+		TLSClientConfig: config.TLSConfig,
+		QUICConfig:      config.QuicConfig,
 	}
 
 	return &client{
@@ -104,7 +101,7 @@ func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session,
 			return nil, nil, err
 		}
 		if c.pinnedCert != nil {
-			if err = c.verifyPinnedCert(res); err != nil {
+			if err = c.verifyPinnedCert(session); err != nil {
 				session.CloseWithError(webtransport.SessionErrorCode(0), "")
 				return nil, nil, err
 			}
@@ -115,8 +112,8 @@ func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session,
 	return c.session, c.res, nil
 }
 
-func (c *client) verifyPinnedCert(res *http.Response) error {
-	certs := res.TLS.PeerCertificates
+func (c *client) verifyPinnedCert(session *webtransport.Session) error {
+	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
 		return errors.New("server did not present any certificates")
 	}

@@ -25,7 +25,10 @@ const (
 	testPath = "webtransport"
 )
 
-var tests [][]byte
+var (
+	tests    [][]byte
+	certPool *x509.CertPool
+)
 
 func init() {
 	rb := make([]byte, 4096)
@@ -36,6 +39,7 @@ func init() {
 		rb,
 		[]byte("ahoy"),
 	}
+	certPool = x509.NewCertPool()
 }
 
 func dialAndEcho(t *testing.T, dialer *client, data []byte) {
@@ -189,6 +193,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		Headers: nil,
 		Bytes:   goodCert.Raw,
 	})
+	certPool.AddCert(goodCert)
 
 	badPair, err := generateKeyPair()
 	if !assert.NoError(t, err) {
@@ -204,7 +209,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		Bytes:   badCert.Raw,
 	})
 
-	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}})
+	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}, RootCAs: certPool})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -229,17 +234,17 @@ func TestWebtPinnedCert(t *testing.T) {
 	badDialer := NewClient(&ClientOptions{
 		Addr:       server,
 		Path:       testPath,
-		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		TLSConfig:  &tls.Config{InsecureSkipVerify: false, ServerName: "localhost", RootCAs: certPool},
 		PinnedCert: badCert,
 	})
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
 
 	// correct cert
 	pinDialer := NewClient(&ClientOptions{
 		Addr:       server,
 		Path:       testPath,
-		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		TLSConfig:  &tls.Config{InsecureSkipVerify: false, ServerName: "localhost", RootCAs: certPool},
 		PinnedCert: goodCert,
 	})
 	_, err = pinDialer.Dial()
@@ -343,7 +348,7 @@ func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) 
 		Addr:       "127.0.0.1:0",
 		Path:       testPath,
 		TLSConfig:  tlsConf,
-		QuicConfig: config,
+		QUICConfig: config,
 	}
 	l, err := ListenAddr(options)
 	if err != nil {
@@ -378,7 +383,7 @@ func generateTLSConfig() (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}, nil
+	return &tls.Config{Certificates: []tls.Certificate{tlsCert}, RootCAs: certPool}, nil
 }
 
 func generateKeyPair() (tls.Certificate, error) {
@@ -392,15 +397,11 @@ func generateKeyPair() (tls.Certificate, error) {
 	template.PermittedDNSDomains = []string{"localhost"}
 	template.DNSNames = []string{"localhost"}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	//tlsCert.Certificate.
-
-	return tlsCert, err
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
