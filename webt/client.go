@@ -48,6 +48,16 @@ func NewClient(config *ClientOptions) *client {
 	}
 }
 
+// PacketConn creates a net.PacketConn from the current webtransport session.
+// If no session exists, one will be created
+func (c *client) PacketConn(ctx context.Context) (net.PacketConn, error) {
+	session, _, err := c.getOrCreateSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return NewPacketConn(session), nil
+}
+
 // DialContext creates a webtransport connection to the
 // server configured in the client. The given Context governs
 // cancellation / timeout.
