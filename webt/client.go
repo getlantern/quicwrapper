@@ -9,17 +9,22 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/webtransport-go"
 )
 
+const keepAliveInterval = 10 * time.Second
+
 type ClientOptions struct {
 	Addr       string
 	Path       string
 	TLSConfig  *tls.Config
-	QuicConfig *quic.Config
+	QUICConfig *quic.Config
 	PinnedCert *x509.Certificate
 }
 
@@ -37,7 +42,7 @@ type client struct {
 func NewClient(config *ClientOptions) *client {
 	dialer := &webtransport.Dialer{
 		TLSClientConfig: config.TLSConfig,
-		QUICConfig:      config.QuicConfig,
+		QUICConfig:      config.QUICConfig,
 	}
 
 	return &client{
@@ -46,6 +51,17 @@ func NewClient(config *ClientOptions) *client {
 		pinnedCert: config.PinnedCert,
 		dialer:     dialer,
 	}
+}
+
+// PacketConn creates a net.PacketConn from the current webtransport session.
+// If no session exists, one will be created
+func (c *client) PacketConn(ctx context.Context) (net.PacketConn, error) {
+	session, _, err := c.getOrCreateSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// enable client side keep-alive
+	return getPacketConn(session, keepAliveInterval), nil
 }
 
 // DialContext creates a webtransport connection to the
@@ -91,12 +107,39 @@ func (c *client) Connect(ctx context.Context) error {
 	return err
 }
 
+func validateURL(addr, path string) (*url.URL, error) {
+	if !strings.Contains(addr, "://") {
+		addr = "https://" + addr
+	}
+
+	// parse the address
+	parsedAddr, err := url.Parse(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid addr: %w", err)
+	}
+	// ensure addr has "https" as scheme
+	if parsedAddr.Scheme != "https" {
+		return nil, fmt.Errorf("invalid scheme, got: %s", parsedAddr.Scheme)
+	}
+
+	// parse the path
+	parsedPath, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	return parsedAddr.ResolveReference(parsedPath), nil
+}
+
 func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session, *http.Response, error) {
 	c.muSession.Lock()
 	defer c.muSession.Unlock()
 	if c.session == nil {
-		u := fmt.Sprintf("https://%s/%s/", c.address, c.path)
-		res, session, err := c.dialer.Dial(ctx, u, nil)
+		u, err := validateURL(c.address, c.path)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, session, err := c.dialer.Dial(ctx, u.String(), nil)
 		if err != nil {
 			return nil, nil, err
 		}
