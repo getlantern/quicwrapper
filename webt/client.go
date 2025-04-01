@@ -10,10 +10,13 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/webtransport-go"
 )
+
+const keepAliveInterval = 10 * time.Second
 
 type ClientOptions struct {
 	Addr       string
@@ -55,7 +58,8 @@ func (c *client) PacketConn(ctx context.Context) (net.PacketConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewPacketConn(session), nil
+	// enable client side keep-alive
+	return NewPacketConn(session, keepAliveInterval), nil
 }
 
 // DialContext creates a webtransport connection to the

@@ -12,7 +12,9 @@ import (
 	"github.com/quic-go/webtransport-go"
 )
 
-const maxDatagramSize = 1152
+// WebTransport datagram uses QUIC datagram frames, with the minimum MTU (max transmission unit) being 1200 bytes which includes
+// QUIC header and WebTransport header. Let's just use a smaller safe size to avoid hitting maximum packet size.
+const maxDatagramSize = 1024
 
 // packetConn wraps a WebTransport session to implement net.PacketConn with defined max datagram size
 type packetConn struct {
@@ -21,6 +23,10 @@ type packetConn struct {
 	mutex   sync.Mutex
 	inbox   chan []byte               // the queue for reassembled messages
 	buffers map[uint32]*messageBuffer // pending messages
+
+	// keep-alive interval that periodically sends "ping" messages to avoid QUIC idle timeout error
+	keepAliveInterval time.Duration
+	keepAliveStop     chan struct{}
 }
 
 // messageBuffer stores chunks of a message until it's fully received
@@ -39,6 +45,11 @@ func (c *packetConn) receiveDatagrams() {
 			log.Debugf("receiveDatagrams error:", err)
 			close(c.inbox)
 			return
+		}
+
+		// ignore keep-alive "ping" messages
+		if len(data) == 4 && string(data) == "ping" {
+			continue
 		}
 
 		if len(data) < 12 {
@@ -129,9 +140,29 @@ func (w *packetConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	return len(p), nil
 }
 
+// keepAlive periodically sends a "ping" datagram
+func (w *packetConn) keepAlive() {
+	ticker := time.NewTicker(w.keepAliveInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err := w.session.SendDatagram([]byte("ping"))
+			if err != nil {
+				log.Debugf("keepAlive error: %v", err)
+				return
+			}
+		case <-w.keepAliveStop:
+			return
+		}
+	}
+}
+
 // Close closes the WebTransport session
 func (w *packetConn) Close() error {
-	return w.session.CloseWithError(0, "session closed")
+	close(w.keepAliveStop)
+	return w.session.CloseWithError(webtransport.SessionErrorCode(0), "session closed")
 }
 
 // LocalAddr returns the local address
@@ -151,14 +182,21 @@ func (w *packetConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// NewpacketConn creates a new packetConn.
-func NewPacketConn(session *webtransport.Session) net.PacketConn {
+// NewpacketConn creates a new packetConn by wrapping a WebTransport session.
+// The keepAlive parameter, when > 0, is the duration between sending session keep-alive ping datagrams.
+func NewPacketConn(session *webtransport.Session, keepAlive time.Duration) net.PacketConn {
 	conn := &packetConn{
-		session: session,
-		inbox:   make(chan []byte, 100),
-		buffers: make(map[uint32]*messageBuffer),
+		session:           session,
+		inbox:             make(chan []byte, 100),
+		buffers:           make(map[uint32]*messageBuffer),
+		keepAliveInterval: keepAlive,
+		keepAliveStop:     make(chan struct{}),
 	}
-	// Start listening for incoming datagrams
+	//listening for incoming datagrams
 	go conn.receiveDatagrams()
+	// keep-alive packets
+	if keepAlive > 0 {
+		go conn.keepAlive()
+	}
 	return conn
 }

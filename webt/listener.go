@@ -195,7 +195,8 @@ func (l *listener) handleDatagramSession(session *webtransport.Session) {
 		return
 	}
 	// l.numVirtualConnections isn't used in datagram mode so it remains 0
-	l.datagramHandler(NewPacketConn(session), session.RemoteAddr())
+	// server doesn't need keep-alive
+	l.datagramHandler(NewPacketConn(session, 0), session.RemoteAddr())
 }
 
 func (l *listener) logStats() {
