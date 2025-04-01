@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,8 +75,12 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 		datagramHandler: options.DatagramHandler,
 	}
 
-	path := fmt.Sprintf("/%s/", options.Path)
+	// remove leading and trailing slashes
+	options.Path = strings.Trim(options.Path, "/")
+	path := fmt.Sprintf("/%s", options.Path)
+	// treat both /path and /path/ the same
 	mux.HandleFunc(path, l.handleUpgrade)
+	mux.HandleFunc(path+"/", l.handleUpgrade)
 	ops.Go(l.listenAndServe)
 	ops.Go(l.logStats)
 

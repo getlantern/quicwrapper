@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,12 +107,39 @@ func (c *client) Connect(ctx context.Context) error {
 	return err
 }
 
+func validateURL(addr, path string) (*url.URL, error) {
+	if !strings.Contains(addr, "://") {
+		addr = "https://" + addr
+	}
+
+	// parse the address
+	parsedAddr, err := url.Parse(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid addr: %w", err)
+	}
+	// ensure addr has "https" as scheme
+	if parsedAddr.Scheme != "https" {
+		return nil, fmt.Errorf("invalid scheme, got: %s", parsedAddr.Scheme)
+	}
+
+	// parse the path
+	parsedPath, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	return parsedAddr.ResolveReference(parsedPath), nil
+}
+
 func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session, *http.Response, error) {
 	c.muSession.Lock()
 	defer c.muSession.Unlock()
 	if c.session == nil {
-		u := fmt.Sprintf("https://%s/%s/", c.address, c.path)
-		res, session, err := c.dialer.Dial(ctx, u, nil)
+		u, err := validateURL(c.address, c.path)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, session, err := c.dialer.Dial(ctx, u.String(), nil)
 		if err != nil {
 			return nil, nil, err
 		}
