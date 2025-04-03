@@ -1,15 +1,13 @@
 module github.com/getlantern/quicwrapper
 
-go 1.22
-
-toolchain go1.22.0
+go 1.24.2
 
 require (
 	github.com/getlantern/golog v0.0.0-20230206140254-6d0a2e0f79af
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
 	github.com/prometheus/client_golang v1.19.1
-	github.com/quic-go/quic-go v0.49.0
+	github.com/quic-go/quic-go v0.50.1
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66
 	github.com/stretchr/testify v1.9.0
 )
