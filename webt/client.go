@@ -24,7 +24,7 @@ type ClientOptions struct {
 	Addr       string
 	Path       string
 	TLSConfig  *tls.Config
-	QuicConfig *quic.Config
+	QUICConfig *quic.Config
 	PinnedCert *x509.Certificate
 }
 
@@ -42,7 +42,7 @@ type client struct {
 func NewClient(config *ClientOptions) *client {
 	dialer := &webtransport.Dialer{
 		TLSClientConfig: config.TLSConfig,
-		QUICConfig:      config.QuicConfig,
+		QUICConfig:      config.QUICConfig,
 	}
 
 	return &client{
@@ -61,7 +61,7 @@ func (c *client) PacketConn(ctx context.Context) (net.PacketConn, error) {
 		return nil, err
 	}
 	// enable client side keep-alive
-	return NewPacketConn(session, keepAliveInterval), nil
+	return getPacketConn(session, keepAliveInterval), nil
 }
 
 // DialContext creates a webtransport connection to the
