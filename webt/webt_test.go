@@ -1,6 +1,7 @@
 package webt
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -19,10 +20,12 @@ import (
 	"github.com/getlantern/quicwrapper"
 	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
-	testPath = "webtransport"
+	testPath      = "webtransport"
+	maxByteLength = 4096
 )
 
 var (
@@ -31,7 +34,7 @@ var (
 )
 
 func init() {
-	rb := make([]byte, 4096)
+	rb := make([]byte, maxByteLength)
 	rand.Read(rb)
 	tests = [][]byte{
 		[]byte("x"),
@@ -40,6 +43,17 @@ func init() {
 		[]byte("ahoy"),
 	}
 	certPool = x509.NewCertPool()
+}
+
+func newClientOptions(l net.Listener) *ClientOptions {
+	return &ClientOptions{
+		Addr:      l.Addr().String(),
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+		QUICConfig: &quicwrapper.Config{
+			EnableDatagrams: true,
+		},
+	}
 }
 
 func dialAndEcho(t *testing.T, dialer *client, data []byte) {
@@ -69,22 +83,51 @@ func dialAndEcho(t *testing.T, dialer *client, data []byte) {
 	assert.Equal(t, data, buf)
 }
 
+// echo server's datagram handler
+func echoServerDatagramHandler(pconn net.PacketConn, remoteAddr net.Addr) {
+	data := make([]byte, maxByteLength)
+	for {
+		rn, addr, err := pconn.ReadFrom(data)
+		if err != nil {
+			log.Debugf("Unable to read datagram: %v, remote address:%v", err, remoteAddr)
+			return
+		}
+		_, err = pconn.WriteTo(data[:rn], addr)
+		if err != nil {
+			log.Debugf("Unable to write datagram: %v, remote address:%v", err, remoteAddr)
+			return
+		}
+	}
+}
+
+func datagramEcho(t *testing.T, dialer *client, data []byte, addr net.Addr) {
+	pconn, err := dialer.PacketConn(context.Background())
+	require.NoError(t, err)
+	defer pconn.Close()
+
+	n, err := pconn.WriteTo(data, addr)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+
+	buf := make([]byte, len(data))
+	n, _, err = pconn.ReadFrom(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+	assert.Equal(t, data, buf)
+}
+
 func TestWebtEchoSeq(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
-	options := &ClientOptions{
-		Addr:      l.Addr().String(),
-		Path:      testPath,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	dialer := NewClient(options)
+	dialer := NewClient(newClientOptions(l))
 	defer dialer.Close()
 
-	for i := 0; i < 5250; i++ {
+	for range 5250 {
 		for _, test := range tests {
 			dialAndEcho(t, dialer, test)
+			datagramEcho(t, dialer, test, l.Addr())
 		}
 	}
 }
@@ -94,21 +137,19 @@ func TestWebtEchoPar1(t *testing.T) {
 	assert.NoError(t, err)
 	defer l.Close()
 
-	options := &ClientOptions{
-		Addr:      l.Addr().String(),
-		Path:      testPath,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	dialer := NewClient(options)
+	dialer := NewClient(newClientOptions(l))
 	defer dialer.Close()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 525; i++ {
+	for range 525 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for _, test := range tests {
 				dialAndEcho(t, dialer, test)
+				// we don't test datagram echo (datagramEcho) in parallel here because it only makes sense
+				// to have one receiver (the wrapped net.PacketConn.ReadFrom, or webtransport.Session.ReceiveDatagram)
+				// per webtransport.Session
 			}
 		}()
 	}
@@ -125,18 +166,15 @@ func TestWebtEchoPar2(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			options := &ClientOptions{
-				Addr:      l.Addr().String(),
-				Path:      testPath,
-				TLSConfig: &tls.Config{InsecureSkipVerify: true},
-			}
-			dialer := NewClient(options)
+			dialer := NewClient(newClientOptions(l))
 			defer dialer.Close()
 
 			for j := 0; j < 25; j++ {
 				for _, test := range tests {
 					dialAndEcho(t, dialer, test)
+					// since we will have different webtransport.Session per client in each goroutine here,
+					// the datagram test should work in this case
+					datagramEcho(t, dialer, test, l.Addr())
 				}
 			}
 		}()
@@ -154,12 +192,7 @@ func TestWebtEchoPar3(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			options := &ClientOptions{
-				Addr:      l.Addr().String(),
-				Path:      testPath,
-				TLSConfig: &tls.Config{InsecureSkipVerify: true},
-			}
-			dialer := NewClient(options)
+			dialer := NewClient(newClientOptions(l))
 			defer dialer.Close()
 
 			var wg2 sync.WaitGroup
@@ -169,6 +202,8 @@ func TestWebtEchoPar3(t *testing.T) {
 					defer wg2.Done()
 					for _, test := range tests {
 						dialAndEcho(t, dialer, test)
+						// same as TestWebtEchoPar1 we use concurrent goroutines here but the underlying
+						// webtransport.Session is the same, so the datagram echo test will not work
 					}
 				}()
 			}
@@ -345,10 +380,11 @@ func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) 
 		tlsConf = tc
 	}
 	options := &ListenOptions{
-		Addr:       "127.0.0.1:0",
-		Path:       testPath,
-		TLSConfig:  tlsConf,
-		QUICConfig: config,
+		Addr:            "127.0.0.1:0",
+		Path:            testPath,
+		TLSConfig:       tlsConf,
+		QUICConfig:      config,
+		DatagramHandler: echoServerDatagramHandler,
 	}
 	l, err := ListenAddr(options)
 	if err != nil {
