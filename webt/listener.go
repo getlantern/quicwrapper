@@ -55,6 +55,10 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 			TLSConfig:  options.TLSConfig,
 			QUICConfig: options.QUICConfig,
 		},
+		// allow any origin
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", options.Addr)
@@ -159,7 +163,7 @@ func (l *listener) listenAndServe() {
 func (l *listener) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	session, err := l.server.Upgrade(w, r)
 	if err != nil {
-		fmt.Printf("upgrading failed: %s", err)
+		log.Errorf("webtransport upgrade failed: %s", err)
 		w.WriteHeader(500)
 		return
 	}
