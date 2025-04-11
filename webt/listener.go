@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,8 +33,11 @@ type ListenOptions struct {
 	Addr       string
 	Path       string
 	TLSConfig  *tls.Config
-	QuicConfig *quic.Config
+	QUICConfig *quic.Config
 	Handler    *http.ServeMux
+	// DatagramHandler is an optional datagram handler that will be called when a new WebTransport session is created
+	// It will be called with a net.PacketConn that wraps the WebTransport session, and with the remote address
+	DatagramHandler func(pconn net.PacketConn, remoteAddr net.Addr)
 }
 
 // ListenAddr creates an HTTP/3 server listening on a given address.
@@ -49,7 +53,7 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 			Handler:    mux,
 			Addr:       options.Addr,
 			TLSConfig:  options.TLSConfig,
-			QuicConfig: options.QuicConfig,
+			QUICConfig: options.QUICConfig,
 		},
 	}
 
@@ -63,15 +67,20 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 	}
 
 	l := &listener{
-		server:       server,
-		conn:         conn,
-		connections:  make(chan net.Conn, 1000),
-		acceptError:  make(chan error, 1),
-		closedSignal: make(chan struct{}),
+		server:          server,
+		conn:            conn,
+		connections:     make(chan net.Conn, 1000),
+		acceptError:     make(chan error, 1),
+		closedSignal:    make(chan struct{}),
+		datagramHandler: options.DatagramHandler,
 	}
 
-	path := fmt.Sprintf("/%s/", options.Path)
+	// remove leading and trailing slashes
+	options.Path = strings.Trim(options.Path, "/")
+	path := fmt.Sprintf("/%s", options.Path)
+	// treat both /path and /path/ the same
 	mux.HandleFunc(path, l.handleUpgrade)
+	mux.HandleFunc(path+"/", l.handleUpgrade)
 	ops.Go(l.listenAndServe)
 	ops.Go(l.logStats)
 
@@ -92,6 +101,8 @@ type listener struct {
 	closedSignal chan struct{}
 	closeErr     error
 	closeOnce    sync.Once
+
+	datagramHandler func(net.PacketConn, net.Addr)
 }
 
 // implements net.Listener.Accept
@@ -153,33 +164,44 @@ func (l *listener) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	atomic.AddInt64(&l.numConnections, 1)
-	l.handleSession(session)
+	go l.handleDatagramSession(session)
+	l.handleStreamSession(session)
 	// session closes if this handler returns.
 	atomic.AddInt64(&l.numConnections, -1)
 }
 
-func (l *listener) handleSession(session *webtransport.Session) {
+// handleStreamSession accepts new WebTransport streams from the session
+func (l *listener) handleStreamSession(session *webtransport.Session) {
 	for {
 		stream, err := session.AcceptStream(context.Background())
 		if err != nil {
 			if quicwrapper.IsPeerGoingAway(err) {
 				log.Tracef("Accepting stream: Peer going away (%v)", err)
 				return
-			} else if ce, ok := err.(*webtransport.ConnectionError); ok && ce.Remote {
-				log.Tracef("Accepting stream: webtransport.ConnectionError remote=%v message=%v", ce.Remote, ce.Message)
+			} else if ce, ok := err.(*webtransport.SessionError); ok && ce.Remote {
+				log.Tracef("Accepting stream: webtransport.SessionError remote=%v message=%v", ce.Remote, ce.Message)
 				return
 			} else {
 				log.Errorf("Accepting stream: %v", err)
 				return
 			}
-		} else {
-			atomic.AddInt64(&l.numVirtualConnections, 1)
-			conn := NewConn(stream, session, nil, func() {
-				atomic.AddInt64(&l.numVirtualConnections, -1)
-			})
-			l.connections <- conn
 		}
+		atomic.AddInt64(&l.numVirtualConnections, 1)
+		conn := NewConn(stream, session, nil, func() {
+			atomic.AddInt64(&l.numVirtualConnections, -1)
+		})
+		l.connections <- conn
 	}
+}
+
+// handleDatagramSession wraps the WebTransport session to net.PacketConn and calls a custom datagramHandler if any
+func (l *listener) handleDatagramSession(session *webtransport.Session) {
+	if l.datagramHandler == nil {
+		return
+	}
+	// l.numVirtualConnections isn't used in datagram mode so it remains 0
+	// server doesn't need keep-alive
+	l.datagramHandler(getPacketConn(session, 0), session.RemoteAddr())
 }
 
 func (l *listener) logStats() {

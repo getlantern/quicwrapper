@@ -1,6 +1,7 @@
 package webt
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -19,22 +20,39 @@ import (
 	"github.com/getlantern/quicwrapper"
 	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
-	testPath = "webtransport"
+	testPath      = "webtransport"
+	maxByteLength = 4096
 )
 
-var tests [][]byte
+var (
+	tests    [][]byte
+	certPool *x509.CertPool
+)
 
 func init() {
-	rb := make([]byte, 4096)
+	rb := make([]byte, maxByteLength)
 	rand.Read(rb)
 	tests = [][]byte{
 		[]byte("x"),
 		[]byte("hello world"),
 		rb,
 		[]byte("ahoy"),
+	}
+	certPool = x509.NewCertPool()
+}
+
+func newClientOptions(l net.Listener) *ClientOptions {
+	return &ClientOptions{
+		Addr:      l.Addr().String(),
+		Path:      testPath,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+		QUICConfig: &quicwrapper.Config{
+			EnableDatagrams: true,
+		},
 	}
 }
 
@@ -65,22 +83,51 @@ func dialAndEcho(t *testing.T, dialer *client, data []byte) {
 	assert.Equal(t, data, buf)
 }
 
+// echo server's datagram handler
+func echoServerDatagramHandler(pconn net.PacketConn, remoteAddr net.Addr) {
+	data := make([]byte, maxByteLength)
+	for {
+		rn, addr, err := pconn.ReadFrom(data)
+		if err != nil {
+			log.Debugf("Unable to read datagram: %v, remote address:%v", err, remoteAddr)
+			return
+		}
+		_, err = pconn.WriteTo(data[:rn], addr)
+		if err != nil {
+			log.Debugf("Unable to write datagram: %v, remote address:%v", err, remoteAddr)
+			return
+		}
+	}
+}
+
+func datagramEcho(t *testing.T, dialer *client, data []byte, addr net.Addr) {
+	pconn, err := dialer.PacketConn(context.Background())
+	require.NoError(t, err)
+	defer pconn.Close()
+
+	n, err := pconn.WriteTo(data, addr)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+
+	buf := make([]byte, len(data))
+	n, _, err = pconn.ReadFrom(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+	assert.Equal(t, data, buf)
+}
+
 func TestWebtEchoSeq(t *testing.T) {
 	l, err := echoServer(nil, nil)
 	assert.NoError(t, err)
 	defer l.Close()
 
-	options := &ClientOptions{
-		Addr:      l.Addr().String(),
-		Path:      testPath,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	dialer := NewClient(options)
+	dialer := NewClient(newClientOptions(l))
 	defer dialer.Close()
 
-	for i := 0; i < 5250; i++ {
+	for range 5250 {
 		for _, test := range tests {
 			dialAndEcho(t, dialer, test)
+			datagramEcho(t, dialer, test, l.Addr())
 		}
 	}
 }
@@ -90,21 +137,19 @@ func TestWebtEchoPar1(t *testing.T) {
 	assert.NoError(t, err)
 	defer l.Close()
 
-	options := &ClientOptions{
-		Addr:      l.Addr().String(),
-		Path:      testPath,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	dialer := NewClient(options)
+	dialer := NewClient(newClientOptions(l))
 	defer dialer.Close()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 525; i++ {
+	for range 525 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for _, test := range tests {
 				dialAndEcho(t, dialer, test)
+				// we don't test datagram echo (datagramEcho) in parallel here because it only makes sense
+				// to have one receiver (the wrapped net.PacketConn.ReadFrom, or webtransport.Session.ReceiveDatagram)
+				// per webtransport.Session
 			}
 		}()
 	}
@@ -121,18 +166,15 @@ func TestWebtEchoPar2(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			options := &ClientOptions{
-				Addr:      l.Addr().String(),
-				Path:      testPath,
-				TLSConfig: &tls.Config{InsecureSkipVerify: true},
-			}
-			dialer := NewClient(options)
+			dialer := NewClient(newClientOptions(l))
 			defer dialer.Close()
 
 			for j := 0; j < 25; j++ {
 				for _, test := range tests {
 					dialAndEcho(t, dialer, test)
+					// since we will have different webtransport.Session per client in each goroutine here,
+					// the datagram test should work in this case
+					datagramEcho(t, dialer, test, l.Addr())
 				}
 			}
 		}()
@@ -150,12 +192,7 @@ func TestWebtEchoPar3(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			options := &ClientOptions{
-				Addr:      l.Addr().String(),
-				Path:      testPath,
-				TLSConfig: &tls.Config{InsecureSkipVerify: true},
-			}
-			dialer := NewClient(options)
+			dialer := NewClient(newClientOptions(l))
 			defer dialer.Close()
 
 			var wg2 sync.WaitGroup
@@ -165,6 +202,8 @@ func TestWebtEchoPar3(t *testing.T) {
 					defer wg2.Done()
 					for _, test := range tests {
 						dialAndEcho(t, dialer, test)
+						// same as TestWebtEchoPar1 we use concurrent goroutines here but the underlying
+						// webtransport.Session is the same, so the datagram echo test will not work
 					}
 				}()
 			}
@@ -189,6 +228,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		Headers: nil,
 		Bytes:   goodCert.Raw,
 	})
+	certPool.AddCert(goodCert)
 
 	badPair, err := generateKeyPair()
 	if !assert.NoError(t, err) {
@@ -204,7 +244,7 @@ func TestWebtPinnedCert(t *testing.T) {
 		Bytes:   badCert.Raw,
 	})
 
-	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}})
+	l, err := echoServer(nil, &tls.Config{Certificates: []tls.Certificate{keyPair}, RootCAs: certPool})
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -229,17 +269,17 @@ func TestWebtPinnedCert(t *testing.T) {
 	badDialer := NewClient(&ClientOptions{
 		Addr:       server,
 		Path:       testPath,
-		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		TLSConfig:  &tls.Config{InsecureSkipVerify: false, ServerName: "localhost", RootCAs: certPool},
 		PinnedCert: badCert,
 	})
 	_, err = badDialer.Dial()
-	assert.EqualError(t, err, fmt.Sprintf("connecting session: Server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
+	assert.EqualError(t, err, fmt.Sprintf("connecting session: server's certificate didn't match expected! Server had\n%v\nbut expected:\n%v", goodBytes, badBytes))
 
 	// correct cert
 	pinDialer := NewClient(&ClientOptions{
 		Addr:       server,
 		Path:       testPath,
-		TLSConfig:  &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
+		TLSConfig:  &tls.Config{InsecureSkipVerify: false, ServerName: "localhost", RootCAs: certPool},
 		PinnedCert: goodCert,
 	})
 	_, err = pinDialer.Dial()
@@ -340,10 +380,11 @@ func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) 
 		tlsConf = tc
 	}
 	options := &ListenOptions{
-		Addr:       "127.0.0.1:0",
-		Path:       testPath,
-		TLSConfig:  tlsConf,
-		QuicConfig: config,
+		Addr:            "127.0.0.1:0",
+		Path:            testPath,
+		TLSConfig:       tlsConf,
+		QUICConfig:      config,
+		DatagramHandler: echoServerDatagramHandler,
 	}
 	l, err := ListenAddr(options)
 	if err != nil {
@@ -378,7 +419,7 @@ func generateTLSConfig() (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}, nil
+	return &tls.Config{Certificates: []tls.Certificate{tlsCert}, RootCAs: certPool}, nil
 }
 
 func generateKeyPair() (tls.Certificate, error) {
@@ -392,15 +433,11 @@ func generateKeyPair() (tls.Certificate, error) {
 	template.PermittedDNSDomains = []string{"localhost"}
 	template.DNSNames = []string{"localhost"}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	//tlsCert.Certificate.
-
-	return tlsCert, err
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
