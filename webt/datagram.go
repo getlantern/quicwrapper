@@ -17,6 +17,7 @@ type DatagramChunker struct {
 	mutex   sync.Mutex
 	buffers map[uint32]*messageBuffer // pending messages
 	inbox   chan []byte               // queue for reassembled messages
+	closed  bool
 }
 
 // messageBuffer stores chunks of a message until it's fully received
@@ -68,7 +69,9 @@ func (dc *DatagramChunker) Receive(data []byte) {
 	if buf.received == buf.total {
 		full := assembleChunks(buf.chunks)
 		delete(dc.buffers, msgID)
-		dc.inbox <- full
+		if !dc.closed {
+			dc.inbox <- full
+		}
 	}
 }
 
@@ -103,7 +106,12 @@ func (dc *DatagramChunker) Chunk(p []byte) [][]byte {
 
 // Close disposes of the instance. After calling Close() the instance can not be used anymore
 func (dc *DatagramChunker) Close() {
-	close(dc.inbox)
+	dc.mutex.Lock()
+	defer dc.mutex.Unlock()
+	if !dc.closed {
+		close(dc.inbox)
+		dc.closed = true
+	}
 }
 
 // NewDatagramChunker creates a new ChunkedDatagramHandler that handles chunking and reassembly of datagram payloads
