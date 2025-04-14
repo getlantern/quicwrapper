@@ -2,6 +2,7 @@ package webt
 
 import (
 	"bytes"
+	"io"
 	"math/rand"
 	"sync"
 	"testing"
@@ -12,18 +13,19 @@ import (
 )
 
 func TestDatagramChunker(t *testing.T) {
-	h := NewDatagramChunker()
-	defer h.Close()
 	wg := &sync.WaitGroup{}
 
-	for range 100 {
+	for range 1000 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			h := NewDatagramChunker()
+			defer h.Close()
 			// generate test random data
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			original := make([]byte, 1024*(r.Intn(1024)+2)) // at least 2KB
-			_, _ = r.Read(original)
+			_, err := io.ReadFull(r, original)
+			require.NoError(t, err, "unable to generate random data")
 
 			// split to chunks
 			chunks := h.Chunk(original)

@@ -3,8 +3,8 @@ package webt
 import (
 	"encoding/binary"
 	"io"
-	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,10 +14,11 @@ const maxDatagramSize = 1024
 
 // DatagramChunker handles chunking and reassemly of datagram payloads
 type DatagramChunker struct {
-	mutex   sync.Mutex
-	buffers map[uint32]*messageBuffer // pending messages
-	inbox   chan []byte               // queue for reassembled messages
-	closed  bool
+	mutex     sync.Mutex
+	buffers   map[uint32]*messageBuffer // pending messages
+	inbox     chan []byte               // queue for reassembled messages
+	closed    bool
+	msgIDSeed uint32 // atomic counter
 }
 
 // messageBuffer stores chunks of a message until it's fully received
@@ -61,6 +62,10 @@ func (dc *DatagramChunker) Receive(data []byte) {
 		}
 		dc.buffers[msgID] = buf
 	}
+	if int(chunkIndex) >= len(buf.chunks) {
+		log.Errorf("chunkIndex %d out of bounds for msg %d", chunkIndex, msgID)
+		return
+	}
 	if buf.chunks[chunkIndex] == nil {
 		buf.chunks[chunkIndex] = payload
 		buf.received++
@@ -87,7 +92,7 @@ func (dc *DatagramChunker) Read() ([]byte, error) {
 // Chunk splits a message into datagram chunks to be sent over the wire
 func (dc *DatagramChunker) Chunk(p []byte) [][]byte {
 	totalChunks := (len(p) + maxDatagramSize - 1) / maxDatagramSize
-	msgID := uint32(rand.Int31())
+	msgID := atomic.AddUint32(&dc.msgIDSeed, 1)
 	var chunks [][]byte
 
 	for i := 0; i < totalChunks; i++ {
