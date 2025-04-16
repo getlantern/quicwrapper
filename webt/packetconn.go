@@ -82,6 +82,7 @@ func (h *refCountedConnHandle) SetWriteDeadline(t time.Time) error {
 type packetConn struct {
 	session *webtransport.Session
 	chunker *DatagramChunker
+	excess  []byte
 
 	// keep-alive interval that periodically sends "ping" messages to the peer to avoid QUIC idle timeout error
 	keepAliveInterval time.Duration
@@ -117,13 +118,22 @@ func (c *packetConn) receiveDatagrams() {
 
 // ReadFrom waits for a complete message and returns it
 func (c *packetConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	if len(c.excess) > 0 {
+		l := copy(p, c.excess)
+		c.excess = c.excess[l:]
+		return l, c.session.RemoteAddr(), nil
+	}
 	msg, err := c.chunker.Read()
 	if err != nil {
 		return 0, nil, err
 	}
-	copy(p, msg)
+	l := copy(p, msg)
+	if len(msg) > l {
+		excess := msg[l:]
+		c.excess = append(c.excess, excess...)
+	}
 	log.Tracef("packetConn.ReadFrom: Received %v bytes from %v", len(msg), c.session.RemoteAddr())
-	return len(msg), c.session.RemoteAddr(), nil
+	return l, c.session.RemoteAddr(), nil
 }
 
 // WriteTo splits large messages and sends them as datagram chunks
