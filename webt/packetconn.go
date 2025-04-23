@@ -2,19 +2,12 @@ package webt
 
 import (
 	"context"
-	"encoding/binary"
-	"errors"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/quic-go/webtransport-go"
 )
-
-// WebTransport datagram uses QUIC datagram frames, with the minimum MTU (max transmission unit) being 1200 bytes which includes
-// QUIC header and WebTransport header. Let's just use a smaller safe size to avoid hitting maximum packet size.
-const maxDatagramSize = 1024
 
 // map[*webtransport.Session]*refCountedConn that maps a WebTransport session to a reference counted packetConn
 var connMap sync.Map
@@ -88,24 +81,13 @@ func (h *refCountedConnHandle) SetWriteDeadline(t time.Time) error {
 // packetConn wraps a WebTransport session and implements net.PacketConn
 type packetConn struct {
 	session *webtransport.Session
-
-	mutex   sync.Mutex
-	inbox   chan []byte               // the queue for reassembled messages
-	buffers map[uint32]*messageBuffer // pending messages
+	chunker *DatagramChunker
+	excess  []byte
 
 	// keep-alive interval that periodically sends "ping" messages to the peer to avoid QUIC idle timeout error
 	keepAliveInterval time.Duration
-
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-// messageBuffer stores chunks of a message until it's fully received
-type messageBuffer struct {
-	chunks    [][]byte
-	total     int
-	received  int
-	timestamp time.Time
+	ctx               context.Context
+	cancel            context.CancelFunc
 }
 
 // receiveDatagrams listens for incoming datagrams as chunks, reassembles them, and queues complete messages
@@ -113,7 +95,7 @@ func (c *packetConn) receiveDatagrams() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			close(c.inbox)
+			c.chunker.Close()
 			log.Trace("receiveDatagrams context done")
 			return
 		default:
@@ -121,7 +103,7 @@ func (c *packetConn) receiveDatagrams() {
 			data, err := c.session.ReceiveDatagram(c.ctx)
 			if err != nil {
 				log.Tracef("receiveDatagrams error: %v", err)
-				close(c.inbox)
+				c.chunker.Close()
 				return
 			}
 
@@ -129,90 +111,40 @@ func (c *packetConn) receiveDatagrams() {
 			if len(data) == 4 && string(data) == "ping" {
 				continue
 			}
-
-			if len(data) < 12 {
-				log.Debugf("receiveDatagrams invalid datagram (too small)")
-				continue
-			}
-
-			// header: msgID, chunkIndex, totalChunks
-			msgID := binary.BigEndian.Uint32(data[0:4])
-			chunkIndex := binary.BigEndian.Uint32(data[4:8])
-			totalChunks := binary.BigEndian.Uint32(data[8:12])
-			payload := data[12:]
-
-			c.mutex.Lock()
-
-			// initialize buffer (new message)
-			if _, exists := c.buffers[msgID]; !exists {
-				c.buffers[msgID] = &messageBuffer{
-					chunks:    make([][]byte, totalChunks),
-					total:     int(totalChunks),
-					received:  0,
-					timestamp: time.Now(),
-				}
-			}
-
-			buffer := c.buffers[msgID]
-			if buffer.chunks[chunkIndex] == nil {
-				buffer.chunks[chunkIndex] = payload
-				buffer.received++
-			}
-
-			// if all chunks have arrived, reassemble and queue the message
-			if buffer.received == buffer.total {
-				fullMessage := assembleMessage(buffer.chunks)
-				delete(c.buffers, msgID)
-				c.inbox <- fullMessage
-			}
-
-			c.mutex.Unlock()
+			c.chunker.Receive(data)
 		}
 	}
-}
-
-// assembleMessage merges chunks
-func assembleMessage(chunks [][]byte) []byte {
-	var fullMessage []byte
-	for _, chunk := range chunks {
-		fullMessage = append(fullMessage, chunk...)
-	}
-	return fullMessage
 }
 
 // ReadFrom waits for a complete message and returns it
 func (c *packetConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	msg, ok := <-c.inbox
-	if !ok {
-		return 0, nil, errors.New("connection closed")
+	if len(c.excess) > 0 {
+		l := copy(p, c.excess)
+		c.excess = c.excess[l:]
+		return l, c.session.RemoteAddr(), nil
 	}
-
-	copy(p, msg)
+	msg, err := c.chunker.Read()
+	if err != nil {
+		return 0, nil, err
+	}
+	l := copy(p, msg)
+	if len(msg) > l {
+		excess := msg[l:]
+		c.excess = append(c.excess, excess...)
+	}
 	log.Tracef("packetConn.ReadFrom: Received %v bytes from %v", len(msg), c.session.RemoteAddr())
-	return len(msg), c.session.RemoteAddr(), nil
+	return l, c.session.RemoteAddr(), nil
 }
 
 // WriteTo splits large messages and sends them as datagram chunks
-func (c *packetConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	totalChunks := (len(p) + maxDatagramSize - 1) / maxDatagramSize
-	msgID := uint32(rand.Int31()) // unique message ID
-
-	for i := range totalChunks {
-		start := i * maxDatagramSize
-		end := min(start+maxDatagramSize, len(p))
-
-		// header: 4-byte msgID, 4-byte chunkIndex, 4-byte totalChunks
-		header := make([]byte, 12)
-		binary.BigEndian.PutUint32(header[0:4], msgID)
-		binary.BigEndian.PutUint32(header[4:8], uint32(i))
-		binary.BigEndian.PutUint32(header[8:12], uint32(totalChunks))
-
-		packet := append(header, p[start:end]...)
-		if err := c.session.SendDatagram(packet); err != nil {
+func (c *packetConn) WriteTo(p []byte, _ net.Addr) (n int, err error) {
+	chunks := c.chunker.Chunk(p)
+	for _, chunk := range chunks {
+		if err := c.session.SendDatagram(chunk); err != nil {
 			return 0, err
 		}
 	}
-	log.Tracef("packetConn.WriteTo: Sent %v bytes of %v chunks", len(p), totalChunks)
+	log.Tracef("packetConn.WriteTo: Sent %v bytes of %v chunks", len(p), len(chunks))
 	return len(p), nil
 }
 
@@ -257,8 +189,7 @@ func newPacketConn(session *webtransport.Session, keepAlive time.Duration) net.P
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &packetConn{
 		session:           session,
-		inbox:             make(chan []byte, 100),
-		buffers:           make(map[uint32]*messageBuffer),
+		chunker:           NewDatagramChunker(),
 		keepAliveInterval: keepAlive,
 		ctx:               ctx,
 		cancel:            cancel,
