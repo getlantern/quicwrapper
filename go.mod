@@ -7,7 +7,7 @@ require (
 	github.com/getlantern/netx v0.0.0-20211206143627-7ccfeb739cbd
 	github.com/getlantern/ops v0.0.0-20230424193308-26325dfed3cf
 	github.com/prometheus/client_golang v1.19.1
-	github.com/quic-go/quic-go v0.50.1
+	github.com/quic-go/quic-go v0.52.0
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66
 	github.com/stretchr/testify v1.9.0
 )
@@ -41,7 +41,6 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.19.1 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
-	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
