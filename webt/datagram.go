@@ -1,6 +1,7 @@
 package webt
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"sync"
@@ -87,6 +88,18 @@ func (dc *DatagramChunker) Read() ([]byte, error) {
 		return nil, io.EOF
 	}
 	return msg, nil
+}
+
+func (dc *DatagramChunker) ReadContext(ctx context.Context) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case msg, ok := <-dc.inbox:
+		if !ok {
+			return nil, io.EOF
+		}
+		return msg, nil
+	}
 }
 
 // Chunk splits a message into datagram chunks to be sent over the wire
