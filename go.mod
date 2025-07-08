@@ -1,6 +1,8 @@
 module github.com/getlantern/quicwrapper
 
-go 1.24.2
+go 1.23.6
+
+toolchain go1.23.7
 
 require (
 	github.com/getlantern/golog v0.0.0-20230206140254-6d0a2e0f79af
