@@ -160,10 +160,10 @@ func (l *listener) listen() {
 	}
 }
 
-func (l *listener) handleSession(session quic.Connection) {
+func (l *listener) handleSession(session *quic.Conn) {
 
 	// track active session connections
-	active := make(map[quic.StreamID]Conn)
+	active := make(map[quic.StreamID]*Conn)
 	var mx sync.Mutex
 
 	defer func() {
@@ -172,7 +172,7 @@ func (l *listener) handleSession(session quic.Connection) {
 		// snapshot any non-closed connections, then nil out active list
 		// conns being closed will 'remove' themselves from the nil
 		// list, not the snapshot.
-		var snapshot map[quic.StreamID]Conn
+		var snapshot map[quic.StreamID]*Conn
 		mx.Lock()
 		snapshot = active
 		active = nil
@@ -203,6 +203,11 @@ func (l *listener) handleSession(session quic.Connection) {
 				delete(active, id)
 				mx.Unlock()
 			})
+			mx.Lock()
+			if active != nil {
+				active[conn.StreamID()] = conn
+			}
+			mx.Unlock()
 
 			l.connections <- conn
 		}

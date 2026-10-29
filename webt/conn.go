@@ -23,7 +23,7 @@ type streamClosedFn func()
 
 // wraps webtransport.Stream and other info to implement net.Conn
 type conn struct {
-	webtransport.Stream
+	*webtransport.Stream
 	session   *webtransport.Session
 	res       *http.Response
 	onClose   streamClosedFn
@@ -32,7 +32,7 @@ type conn struct {
 }
 
 // NewConn creates a new net.Conn from a webtransport.Stream, session, and http.Response
-func NewConn(stream webtransport.Stream, session *webtransport.Session, res *http.Response, onClose streamClosedFn) net.Conn {
+func NewConn(stream *webtransport.Stream, session *webtransport.Session, res *http.Response, onClose streamClosedFn) net.Conn {
 	return &conn{
 		Stream:  stream,
 		session: session,

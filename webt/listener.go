@@ -49,11 +49,13 @@ func ListenAddr(options *ListenOptions) (net.Listener, error) {
 	}
 
 	server := &webtransport.Server{
-		H3: http3.Server{
-			Handler:    mux,
-			Addr:       options.Addr,
-			TLSConfig:  options.TLSConfig,
-			QUICConfig: options.QUICConfig,
+		H3: &http3.Server{
+			Handler: mux,
+			Addr:    options.Addr,
+			// webtransport-go listens with this config as given, so the
+			// h3 ALPN must already be on it.
+			TLSConfig:  http3.ConfigureTLSConfig(options.TLSConfig),
+			QUICConfig: webTransportQUICConfig(options.QUICConfig),
 		},
 		// allow any origin
 		CheckOrigin: func(r *http.Request) bool {

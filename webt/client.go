@@ -35,22 +35,51 @@ type client struct {
 	address    string
 	path       string
 	pinnedCert *x509.Certificate
-	dialer     *webtransport.Dialer
+	transport  *webtransport.Transport
+	// quicConn is the connection under the current session, set by dialQUIC.
+	quicConn *quic.Conn
 }
 
 // NewClient returns a client that creates multiplexed WebTransport based sessions
 func NewClient(config *ClientOptions) *client {
-	dialer := &webtransport.Dialer{
-		TLSClientConfig: config.TLSConfig,
-		QUICConfig:      config.QUICConfig,
-	}
-
-	return &client{
+	c := &client{
 		address:    config.Addr,
 		path:       config.Path,
 		pinnedCert: config.PinnedCert,
-		dialer:     dialer,
 	}
+	c.transport = &webtransport.Transport{
+		TLSClientConfig: config.TLSConfig,
+		QUICConfig:      webTransportQUICConfig(config.QUICConfig),
+		DialAddr:        c.dialQUIC,
+	}
+	return c
+}
+
+// dialQUIC is the transport's QUIC dialer. It keeps the connection it made so
+// getOrCreateSession can read the TLS state: webtransport-go's CONNECT
+// response carries none, and a Session no longer exposes it. Dial calls it
+// synchronously under muSession, so the field needs no further locking.
+func (c *client) dialQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+	conn, err := quic.DialAddrEarly(ctx, addr, tlsCfg, cfg)
+	if err != nil {
+		return nil, err
+	}
+	c.quicConn = conn
+	return conn, nil
+}
+
+// webTransportQUICConfig returns config with the QUIC features WebTransport
+// requires switched on. webtransport-go refuses a config that lacks either,
+// and callers that only ask for datagrams predate the second requirement.
+// A nil config stays nil: webtransport-go then supplies its own defaults.
+func webTransportQUICConfig(config *quic.Config) *quic.Config {
+	if config == nil {
+		return nil
+	}
+	c := config.Clone()
+	c.EnableDatagrams = true
+	c.EnableStreamResetPartialDelivery = true
+	return c
 }
 
 // PacketConn creates a net.PacketConn from the current webtransport session.
@@ -139,12 +168,18 @@ func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session,
 		if err != nil {
 			return nil, nil, err
 		}
-		res, session, err := c.dialer.Dial(ctx, u.String(), nil)
+		res, session, err := c.transport.Dial(ctx, u.String(), nil)
 		if err != nil {
 			return nil, nil, err
 		}
+		if res.TLS == nil && c.quicConn != nil {
+			// Expose the handshake on the response, where conn.PeerCertificates
+			// and the pinned-cert check read it.
+			state := c.quicConn.ConnectionState().TLS
+			res.TLS = &state
+		}
 		if c.pinnedCert != nil {
-			if err = c.verifyPinnedCert(session); err != nil {
+			if err = c.verifyPinnedCert(res); err != nil {
 				session.CloseWithError(webtransport.SessionErrorCode(0), "")
 				return nil, nil, err
 			}
@@ -155,8 +190,13 @@ func (c *client) getOrCreateSession(ctx context.Context) (*webtransport.Session,
 	return c.session, c.res, nil
 }
 
-func (c *client) verifyPinnedCert(session *webtransport.Session) error {
-	certs := session.ConnectionState().TLS.PeerCertificates
+// verifyPinnedCert checks the leaf the server presented on the HTTP/3
+// connection the session rides on, as recorded on the CONNECT response.
+func (c *client) verifyPinnedCert(res *http.Response) error {
+	var certs []*x509.Certificate
+	if res != nil && res.TLS != nil {
+		certs = res.TLS.PeerCertificates
+	}
 	if len(certs) == 0 {
 		return errors.New("server did not present any certificates")
 	}

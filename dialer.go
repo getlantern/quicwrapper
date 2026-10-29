@@ -14,22 +14,34 @@ import (
 )
 
 // a QuicDialFn is a function that may be used to establish a new QUIC Session
-type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Connection, error)
+type QuicDialFn func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (Session, error)
 type UDPDialFn func(addr string) (net.PacketConn, *net.UDPAddr, error)
 
 var (
 	DialWithNetx    QuicDialFn = newDialerWithUDPDialer(DialUDPNetx)
-	DialWithoutNetx QuicDialFn = quic.DialAddr
+	DialWithoutNetx QuicDialFn = dialAddr
 	defaultQuicDial QuicDialFn = DialWithNetx
 )
 
+// dialAddr adapts quic.DialAddr to QuicDialFn. A nil *quic.Conn must not be
+// returned as a non-nil Session.
+func dialAddr(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (Session, error) {
+	conn, err := quic.DialAddr(ctx, addr, tlsConf, config)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+// wrappedSession closes the net.PacketConn it dialed on together with the
+// QUIC connection. quic.Dial leaves the packet conn to the caller.
 type wrappedSession struct {
-	quic.Connection
+	Session
 	conn net.PacketConn
 }
 
 func (w wrappedSession) CloseWithError(code quic.ApplicationErrorCode, mesg string) error {
-	err := w.Connection.CloseWithError(code, mesg)
+	err := w.Session.CloseWithError(code, mesg)
 	err2 := w.conn.Close()
 	if err == nil {
 		err = err2
@@ -40,7 +52,7 @@ func (w wrappedSession) CloseWithError(code quic.ApplicationErrorCode, mesg stri
 // Creates a new QuicDialFn that uses the UDPDialFn given to
 // create the underlying net.PacketConn
 func newDialerWithUDPDialer(dial UDPDialFn) QuicDialFn {
-	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.Connection, error) {
+	return func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (Session, error) {
 		udpConn, udpAddr, err := dial(addr)
 		if err != nil {
 			return nil, err
@@ -110,7 +122,7 @@ func NewClientWithPinnedCert(addr string, tlsConf *tls.Config, config *Config, d
 }
 
 type Client struct {
-	session    quic.Connection
+	session    Session
 	muSession  sync.Mutex
 	address    string
 	tlsConf    *tls.Config
@@ -164,7 +176,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	return err
 }
 
-func (c *Client) getOrCreateSession(ctx context.Context) (quic.Connection, error) {
+func (c *Client) getOrCreateSession(ctx context.Context) (Session, error) {
 	c.muSession.Lock()
 	defer c.muSession.Unlock()
 	if c.session == nil {
@@ -183,7 +195,7 @@ func (c *Client) getOrCreateSession(ctx context.Context) (quic.Connection, error
 	return c.session, nil
 }
 
-func (c *Client) verifyPinnedCert(session quic.Connection) error {
+func (c *Client) verifyPinnedCert(session Session) error {
 	certs := session.ConnectionState().TLS.PeerCertificates
 	if len(certs) == 0 {
 		return fmt.Errorf("server did not present any certificates")
