@@ -3,6 +3,7 @@ package webt
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,6 +44,9 @@ type ListenOptions struct {
 // ListenAddr creates an HTTP/3 server listening on a given address.
 // The net.Conn instances returned by the net.Listener may be multiplexed connections.
 func ListenAddr(options *ListenOptions) (net.Listener, error) {
+	if options.TLSConfig == nil {
+		return nil, errors.New("webt: ListenOptions.TLSConfig is required")
+	}
 	mux := options.Handler
 	if mux == nil {
 		mux = http.NewServeMux()
