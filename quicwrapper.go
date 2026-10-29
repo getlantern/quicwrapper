@@ -4,6 +4,7 @@
 package quicwrapper
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -43,20 +44,36 @@ var (
 
 type Config = quic.Config
 
+// Session is the part of a QUIC connection this package uses. quic-go
+// replaced its quic.Connection interface with the *quic.Conn struct, which
+// cannot be wrapped, so dial functions return this instead: *quic.Conn
+// satisfies it, and so does a wrapper that also owns the underlying
+// net.PacketConn (see newDialerWithUDPDialer).
+type Session interface {
+	AcceptStream(ctx context.Context) (*quic.Stream, error)
+	OpenStreamSync(ctx context.Context) (*quic.Stream, error)
+	CloseWithError(code quic.ApplicationErrorCode, desc string) error
+	ConnectionState() quic.ConnectionState
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
+}
+
+var _ Session = (*quic.Conn)(nil)
+
 var _ net.Conn = &Conn{}
 
 type streamClosedFn func(id quic.StreamID)
 
 // wraps quic.Stream and other info to implement net.Conn
 type Conn struct {
-	quic.Stream
-	session   quic.Connection
+	*quic.Stream
+	session   Session
 	onClose   streamClosedFn
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(stream quic.Stream, session quic.Connection, onClose streamClosedFn) net.Conn {
+func newConn(stream *quic.Stream, session Session, onClose streamClosedFn) *Conn {
 	if onClose == nil {
 		onClose = func(id quic.StreamID) {}
 	}

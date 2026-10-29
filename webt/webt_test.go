@@ -371,6 +371,13 @@ func TestWebtNetErrDeadline(t *testing.T) {
 
 }
 
+func TestListenAddrRequiresTLSConfig(t *testing.T) {
+	_, err := ListenAddr(&ListenOptions{Addr: "127.0.0.1:0", Path: testPath})
+	if err == nil {
+		t.Fatal("ListenAddr accepted a nil TLSConfig")
+	}
+}
+
 func echoServer(config *quic.Config, tlsConf *tls.Config) (net.Listener, error) {
 	if tlsConf == nil {
 		tc, err := generateTLSConfig()
